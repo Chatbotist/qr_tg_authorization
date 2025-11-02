@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram</title>
+    <meta name="theme-color" content="#0088cc">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/tg_icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Слой 1: chat-bg-br.png - растянуть на весь экран */
+        body.inactive-page::before {
+            background-image: url('{{ url_for("static", filename="img/chat-bg-br.png") }}');
+        }
+        /* Слой 2: chat-bg-pattern.png - растянуть на весь экран */
+        body.inactive-page::after {
+            background-image: url('{{ url_for("static", filename="img/chat-bg-pattern.png") }}');
+        }
+    </style>
+</head>
+<body class="inactive-page">
+    <div class="inactive-container">
+        <!-- Основной контент заглушки -->
+        <div class="inactive-content">
+            <img src="{{ url_for('static', filename='img/app-inactive.png') }}" alt="App Inactive" class="inactive-image">
+            <h1 class="inactive-title">Such error, many tabs</h1>
+            <p class="inactive-description">
+                Telegram supports only one active tab with the app.<br>
+                Please reload this page to continue using this tab or close it.
+            </p>
+            <button class="btn btn-reload" onclick="window.location.href='/'">RELOAD APP</button>
+        </div>
+    </div>
+</body>
+</html>
+

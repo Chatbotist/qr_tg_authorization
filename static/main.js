@@ -6,6 +6,211 @@ let sessionCheckInterval = null; // Интервал для проверки с�
 let qrTimeLeft = 25; // Таймаут QR кода
 let isSubmittingPassword = false; // Флаг для предотвращения двойной отправки пароля
 
+// BroadcastChannel для отслеживания активной вкладки
+const CHANNEL_NAME = 'tg_qr_auth_tab_control';
+let tabChannel = null;
+let isActiveTab = false;
+let tabId = null;
+
+// Инициализация отслеживания вкладок
+function initTabTracking() {
+    // Проверяем поддержку BroadcastChannel
+    if (typeof BroadcastChannel === 'undefined') {
+        console.warn('BroadcastChannel не поддерживается, используем localStorage fallback');
+        initTabTrackingFallback();
+        return;
+    }
+    
+    // Генерируем уникальный ID для этой вкладки
+    tabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    // Создаем канал для связи между вкладками
+    tabChannel = new BroadcastChannel(CHANNEL_NAME);
+    
+    // Инициализируем время активации
+    window.lastActivation = Date.now();
+    
+    // Проверяем, в фокусе ли мы - если да, то мы активная вкладка
+    // Если нет - ждем события focus чтобы стать активной
+    if (document.hasFocus() && document.visibilityState === 'visible') {
+        isActiveTab = true;
+        const initialTimestamp = Date.now();
+        tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: initialTimestamp });
+        window.lastActivation = initialTimestamp;
+        console.log('[TAB] Вкладка в фокусе при загрузке, помечаем как активную');
+    } else {
+        // Вкладка не в фокусе - ждем когда получит фокус
+        isActiveTab = false;
+        console.log('[TAB] Вкладка не в фокусе при загрузке, ждем фокуса');
+    }
+    
+    // Слушаем сообщения от других вкладок
+    tabChannel.onmessage = (event) => {
+        const data = event.data;
+        
+        if (data.type === 'tab_activated') {
+            // Другая вкладка стала активной
+            if (data.tabId !== tabId) {
+                const ourLastActivation = window.lastActivation || 0;
+                // Если другая вкладка активировалась позже, чем мы в последний раз, проверяем
+                // Добавляем небольшую задержку (100ms) чтобы избежать конфликтов при одновременном открытии
+                if (data.timestamp > (ourLastActivation + 100)) {
+                    // Перенаправляем на /inactive только если:
+                    // 1. Мы на главной странице (не на /inactive)
+                    // 2. Мы НЕ в фокусе (не активная вкладка)
+                    // 3. Страница не видна или мы не взаимодействуем с ней
+                    if (window.location.pathname === '/' && !document.hasFocus()) {
+                        console.log('[TAB] Другая вкладка активна, эта вкладка не в фокусе - перенаправляем на заглушку');
+                        isActiveTab = false;
+                        window.location.href = '/inactive';
+                    }
+                }
+            } else {
+                // Это наше сообщение, обновляем время активации
+                window.lastActivation = data.timestamp;
+            }
+        }
+    };
+    
+    // Не нужно проверять другие вкладки - мы сами объявляем активность при фокусе
+    
+    // Отслеживаем фокус окна - при получении фокуса становимся активными (только на главной странице)
+    window.addEventListener('focus', () => {
+        // Активность отслеживаем только на главной странице, не на /inactive
+        if (document.visibilityState === 'visible' && window.location.pathname === '/') {
+            isActiveTab = true;
+            const now = Date.now();
+            tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: now });
+            window.lastActivation = now;
+            console.log('[TAB] Вкладка получила фокус на главной, активируем, timestamp:', now);
+        }
+    });
+    
+    // Отслеживаем потерю фокуса - если потеряли фокус, можем стать неактивной
+    window.addEventListener('blur', () => {
+        // При потере фокуса не сразу перенаправляем, но отмечаем что мы не активны
+        // Если другая вкладка активируется, мы получим сообщение и перенаправимся
+        console.log('[TAB] Вкладка потеряла фокус');
+    });
+    
+    // Отслеживаем клики - при клике становимся активными (только на главной странице)
+    document.addEventListener('click', () => {
+        if (document.visibilityState === 'visible' && !document.hidden && window.location.pathname === '/') {
+            isActiveTab = true;
+            const now = Date.now();
+            tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: now });
+            window.lastActivation = now;
+        }
+    });
+    
+    // Отслеживаем движение мыши - показывает что пользователь активен (только на главной странице)
+    document.addEventListener('mousemove', () => {
+        if (document.visibilityState === 'visible' && isActiveTab && document.hasFocus() && window.location.pathname === '/') {
+            const now = Date.now();
+            // Обновляем только если прошло более 200ms с последней активации
+            if (now - (window.lastActivation || 0) > 200) {
+                tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: now });
+                window.lastActivation = now;
+            }
+        }
+    });
+    
+    // Отслеживаем видимость страницы
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // Вкладка не видна, но не обязательно неактивна
+            return;
+        } else {
+            // Вкладка снова видна - проверяем, должна ли быть активной
+            const lastActivation = window.lastActivation || 0;
+            const now = Date.now();
+            // Если последняя активация была более 1 секунды назад, становимся активными
+            if (now - lastActivation > 1000) {
+                isActiveTab = true;
+                tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: now });
+                window.lastActivation = now;
+            }
+        }
+    });
+    
+    // Периодически подтверждаем активность (каждые 500ms для более быстрой реакции)
+    // Только на главной странице, не на /inactive
+    // Подтверждаем активность только если вкладка в фокусе
+    setInterval(() => {
+        if (isActiveTab && document.visibilityState === 'visible' && window.location.pathname === '/') {
+            // Подтверждаем активность только если вкладка действительно в фокусе
+            if (document.hasFocus()) {
+                const now = Date.now();
+                tabChannel.postMessage({ type: 'tab_activated', tabId: tabId, timestamp: now });
+                window.lastActivation = now;
+            }
+        }
+    }, 500);
+    
+    console.log('[TAB] Отслеживание вкладок инициализировано, ID:', tabId);
+}
+
+// Fallback для браузеров без BroadcastChannel (используем localStorage)
+function initTabTrackingFallback() {
+    tabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    isActiveTab = true;
+    
+    const now = Date.now();
+    // Сохраняем активную вкладку только если мы на главной странице
+    if (window.location.pathname === '/') {
+        localStorage.setItem('activeTabId', tabId);
+        localStorage.setItem('activeTabTimestamp', now.toString());
+        window.lastActivation = now;
+    }
+    
+    // Проверяем каждые 200ms для быстрой реакции
+    setInterval(() => {
+        if (!isActiveTab) return;
+        
+        // Проверяем только на главной странице
+        if (window.location.pathname !== '/') return;
+        
+        const activeTabId = localStorage.getItem('activeTabId');
+        const activeTimestamp = parseInt(localStorage.getItem('activeTabTimestamp') || '0');
+        const now = Date.now();
+        
+        // Если другая вкладка активна и это было недавно (менее 2 секунд), перенаправляем
+        if (activeTabId !== tabId && (now - activeTimestamp) < 2000) {
+            console.log('[TAB] Другая вкладка активна (fallback), перенаправляем');
+            isActiveTab = false;
+            window.location.href = '/inactive';
+        } else if (document.visibilityState === 'visible' && document.hasFocus() && isActiveTab) {
+            // Обновляем активность если мы видимы и в фокусе
+            const newTimestamp = Date.now();
+            localStorage.setItem('activeTabId', tabId);
+            localStorage.setItem('activeTabTimestamp', newTimestamp.toString());
+            window.lastActivation = newTimestamp;
+        }
+    }, 200);
+    
+    window.addEventListener('focus', () => {
+        // Только на главной странице
+        if (window.location.pathname === '/') {
+            isActiveTab = true;
+            const now = Date.now();
+            localStorage.setItem('activeTabId', tabId);
+            localStorage.setItem('activeTabTimestamp', now.toString());
+            window.lastActivation = now;
+        }
+    });
+    
+    // Отслеживаем клики только на главной странице
+    document.addEventListener('click', () => {
+        if (document.visibilityState === 'visible' && document.hasFocus() && window.location.pathname === '/') {
+            isActiveTab = true;
+            const now = Date.now();
+            localStorage.setItem('activeTabId', tabId);
+            localStorage.setItem('activeTabTimestamp', now.toString());
+            window.lastActivation = now;
+        }
+    });
+}
+
 // Элементы DOM
 const qrScreen = document.getElementById('qr-screen');
 const passwordScreen = document.getElementById('password-screen');
@@ -24,12 +229,54 @@ const logoutModal = document.getElementById('logout-modal');
 const logoutModalCancel = document.getElementById('logout-modal-cancel');
 const logoutModalConfirm = document.getElementById('logout-modal-confirm');
 
+// Проверка на активную вкладку при загрузке (до DOMContentLoaded)
+// Новая вкладка не должна сразу перенаправляться - только если она не в фокусе
+(function checkActiveTabOnLoad() {
+    // Если вкладка в фокусе при загрузке - она активная, не перенаправляем
+    if (document.hasFocus()) {
+        console.log('[TAB] При загрузке вкладка в фокусе - она активная');
+        return;
+    }
+    
+    // Если не в фокусе - проверяем есть ли другие активные вкладки
+    const CHANNEL_NAME = 'tg_qr_auth_tab_control';
+    
+    // Проверяем через BroadcastChannel если доступен
+    if (typeof BroadcastChannel !== 'undefined') {
+        const checkChannel = new BroadcastChannel(CHANNEL_NAME);
+        let lastMessageTime = 0;
+        
+        checkChannel.onmessage = (event) => {
+            const data = event.data;
+            if (data.type === 'tab_activated') {
+                lastMessageTime = data.timestamp;
+            }
+        };
+        
+        // Если через 300ms получили сообщение от другой активной вкладки И мы не в фокусе - перенаправляем
+        setTimeout(() => {
+            if (lastMessageTime > 0 && !document.hasFocus()) {
+                console.log('[TAB] При загрузке обнаружена другая активная вкладка, перенаправляем');
+                window.location.href = '/inactive';
+            }
+            checkChannel.close();
+        }, 300);
+    }
+})();
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', async () => {
+    // Инициализируем отслеживание активной вкладки ПЕРЕД всем остальным
+    initTabTracking();
+    
+    // Небольшая задержка чтобы дать время отслеживанию вкладок проверить другие вкладки
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
     // Проверяем активные сессии
     await checkActiveSessions();
     
     // Если нет активных сессий, генерируем новый QR
+    // При генерации нового QR старые temp файлы удалятся автоматически
     if (!currentQrId) {
         generateNewQR();
     }
@@ -47,10 +294,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 /**
  * Генерирует новый QR-код
+ * @param {boolean} showSpinner - показывать ли спиннер загрузки (только при первой генерации)
  */
-async function generateNewQR() {
+async function generateNewQR(showSpinner = true) {
     try {
-        qrContainer.innerHTML = '<div class="loading-spinner"></div>';
+        // Показываем спиннер только при первой генерации
+        if (showSpinner) {
+            qrContainer.innerHTML = '<div class="loading-spinner"></div>';
+        }
         
         const response = await fetch('/api/generate_qr', {
             method: 'POST',
@@ -63,7 +314,26 @@ async function generateNewQR() {
         
         if (data.success) {
             currentQrId = data.qr_id;
-            qrContainer.innerHTML = `<img src="data:image/png;base64,${data.qr_image}" alt="QR Code">`;
+            // Если это не первая генерация, делаем мгновенную замену без спиннера
+            const isFirstGeneration = showSpinner;
+            
+            const imgElement = document.createElement('img');
+            imgElement.src = `data:image/png;base64,${data.qr_image}`;
+            imgElement.alt = 'QR Code';
+            
+            // При первой генерации - плавное появление, при смене - мгновенная замена
+            if (!isFirstGeneration) {
+                imgElement.classList.add('qr-instant');
+                // Мгновенная замена - очищаем контейнер и сразу добавляем новый QR
+                qrContainer.innerHTML = '';
+                qrContainer.appendChild(imgElement);
+            } else {
+                // Плавное появление при первой генерации - очищаем спиннер и добавляем QR с анимацией
+                qrContainer.innerHTML = '';
+                qrContainer.appendChild(imgElement);
+            }
+            
+            // Логотип теперь встроен в сам QR-код на сервере, не нужно добавлять поверх
             
             // Начинаем проверку статуса
             startStatusCheck();
@@ -110,10 +380,8 @@ async function checkAuthorizationStatus() {
             if (data.qr_expired) {
                 stopStatusCheck();
                 
-                // Генерируем новый QR-код через 1 секунду
-                setTimeout(() => {
-                    generateNewQR();
-                }, 1000);
+                // Генерируем новый QR-код мгновенно, без спиннера
+                generateNewQR(false);
             }
             return;
         }

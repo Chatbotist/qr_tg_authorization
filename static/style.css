@@ -93,10 +93,28 @@ body {
 
 #qr-container img {
     max-width: 280px;
-    border-radius: 12px;
-    box-shadow: 0 2px 12px var(--tg-shadow);
-    background: white;
-    padding: 16px;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
+    animation: qrAppear 0.4s ease-out;
+    display: block;
+}
+
+/* Анимация плавного появления QR-кода из центра */
+@keyframes qrAppear {
+    0% {
+        opacity: 0;
+        transform: scale(0.7);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Для мгновенной замены QR без анимации */
+#qr-container img.qr-instant {
+    animation: none;
 }
 
 .qr-title {
@@ -108,7 +126,7 @@ body {
 
 .qr-instructions {
     text-align: left;
-    max-width: 380px;
+    max-width: 320px;
     margin: 0 auto;
 }
 
@@ -122,15 +140,15 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     background: #54a9eb;
     color: white;
     border-radius: 50%;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 500;
     flex-shrink: 0;
-    margin-right: 12px;
+    margin-right: 10px;
 }
 
 .instruction-text {
@@ -158,10 +176,10 @@ body {
 
 /* Спиннер загрузки */
 .loading-spinner {
-    width: 60px;
-    height: 60px;
-    border: 4px solid var(--tg-light-bg);
-    border-top: 4px solid var(--tg-blue);
+    width: 39px;
+    height: 39px;
+    border: 3px solid var(--tg-blue);
+    border-top: 3px solid transparent;
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
@@ -459,7 +477,6 @@ input:checked + .switch-slider:before {
     
     #qr-container img {
         max-width: 220px;
-        padding: 12px;
     }
     
     .qr-title {
@@ -472,10 +489,10 @@ input:checked + .switch-slider:before {
     }
     
     .instruction-number {
-        width: 24px;
-        height: 24px;
-        font-size: 12px;
-        margin-right: 10px;
+        width: 20px;
+        height: 20px;
+        font-size: 11px;
+        margin-right: 8px;
     }
     
     .instruction-text {
@@ -485,5 +502,222 @@ input:checked + .switch-slider:before {
     .modal-content {
         min-width: 300px;
         padding: 24px;
+    }
+}
+
+/* Inactive Page Styles */
+body.inactive-page {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* Слой 1: chat-bg-br.png - растянуть на весь экран */
+body.inactive-page::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url('img/chat-bg-br.png');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center;
+    z-index: 0;
+}
+
+/* Слой 2: chat-bg-pattern.png - использовать как паттерн поверх первого слоя (3 шт по ширине) */
+body.inactive-page::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url('img/chat-bg-pattern.png');
+    background-size: calc(100vw / 3) auto;
+    background-repeat: repeat;
+    background-position: top left;
+    z-index: 1;
+}
+
+.inactive-container {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 320px;
+    margin: 20px auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+/* Browser Tabs Simulation */
+.browser-tabs {
+    display: flex;
+    background: #f5f5f5;
+    padding: 8px 8px 0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: #f0f0f0;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 2px;
+    font-size: 13px;
+    color: #666;
+    gap: 6px;
+    cursor: default;
+    user-select: none;
+}
+
+.tab.active {
+    background: white;
+    color: #0088cc;
+    font-weight: 500;
+    border-bottom: 2px solid #0088cc;
+}
+
+.tab-icon {
+    font-size: 14px;
+    display: inline-block;
+}
+
+.tab-icon-img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    opacity: 0.6;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.tab.active .tab-icon-img {
+    opacity: 1;
+}
+
+.tab-text {
+    white-space: nowrap;
+}
+
+.tab-close {
+    margin-left: 6px;
+    color: #999;
+    font-size: 12px;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.tab-close:hover {
+    background: #e0e0e0;
+}
+
+/* Inactive Content */
+.inactive-content {
+    padding: 0 20px 20px 20px;
+    text-align: center;
+    position: relative;
+    z-index: 4;
+}
+
+/* Слой 3: app-inactive.png - поверх фонов, вплотную к верху и на всю ширину */
+.inactive-image {
+    width: 100%;
+    height: auto;
+    margin: 0 0 20px 0;
+    display: block;
+    position: relative;
+    z-index: 3;
+}
+
+/* Слой 4: Текст и кнопки поверх изображения */
+.inactive-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #222;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 4;
+}
+
+.inactive-description {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.4;
+    margin-bottom: 18px;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    position: relative;
+    z-index: 4;
+}
+
+.btn-reload {
+    background: white;
+    color: #0088cc;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: relative;
+    z-index: 4;
+}
+
+.btn-reload:hover {
+    background: #f5f5f5;
+}
+
+.btn-reload:active {
+    background: #eeeeee;
+}
+
+@media (max-width: 600px) {
+    .inactive-container {
+        margin: 15px;
+        max-width: calc(100% - 30px);
+        border-radius: 10px;
+    }
+    
+    .inactive-content {
+        padding: 0 16px 16px 16px;
+    }
+    
+    .inactive-image {
+        width: 100%;
+        margin-bottom: 12px;
+    }
+    
+    .inactive-title {
+        font-size: 16px;
+        margin-bottom: 8px;
+    }
+    
+    .inactive-description {
+        font-size: 12px;
+        margin-bottom: 16px;
+    }
+    
+    .btn-reload {
+        padding: 10px 20px;
+        font-size: 13px;
     }
 }

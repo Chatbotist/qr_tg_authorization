@@ -22,6 +22,32 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/inactive')
+def inactive():
+    """
+    Страница заглушки для неактивных вкладок
+    """
+    try:
+        return render_template('inactive.html')
+    except Exception as e:
+        print(f"[APP] Ошибка при рендеринге inactive.html: {e}")
+        import traceback
+        traceback.print_exc()
+        # Возвращаем простую заглушку если шаблон не найден
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Inactive Tab</title></head>
+        <body style="text-align: center; padding: 50px; font-family: Arial;">
+            <h1>Такая ошибка, много вкладок</h1>
+            <p>Telegram поддерживает только одну активную вкладку с приложением.</p>
+            <p>Пожалуйста, перезагрузите эту страницу, чтобы продолжить использование в этой вкладке, или закройте её.</p>
+            <button onclick="window.location.href='/'" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">ПЕРЕЗАГРУЗИТЬ</button>
+        </body>
+        </html>
+        """, 200
+
+
 @app.route('/api/generate_qr', methods=['POST'])
 def generate_qr():
     """

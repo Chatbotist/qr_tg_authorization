@@ -12,6 +12,7 @@ from telethon.errors import SessionPasswordNeededError
 import qrcode
 import io
 import base64
+from PIL import Image, ImageDraw
 import config
 
 
@@ -96,6 +97,33 @@ class AuthManager:
         if self.is_authorized():
             raise Exception("Already authorized. Logout first.")
         
+        # Удаляем все старые temp файлы перед генерацией нового QR
+        self.cleanup_temp_files()
+        
+        # Очищаем старые QR-коды из памяти
+        for qr_id, qr_data in list(self.active_qr_codes.items()):
+            # Отключаем клиентов старых QR-кодов
+            client = qr_data.get("qr_client")
+            if client:
+                try:
+                    async def disconnect():
+                        await client.disconnect()
+                    self._run_async(disconnect())
+                except Exception as e:
+                    print(f"[AUTH] Ошибка при отключении клиента {qr_id}: {e}")
+            # Удаляем temp сессии
+            temp_session = qr_data.get("temp_session")
+            if temp_session:
+                temp_session_file = Path(temp_session)
+                if temp_session_file.exists():
+                    try:
+                        temp_session_file.unlink()
+                        print(f"[AUTH] Удален старый temp файл: {temp_session}")
+                    except Exception as e:
+                        print(f"[AUTH] Ошибка при удалении {temp_session}: {e}")
+        
+        self.active_qr_codes.clear()
+        
         # Создаем уникальный ID для QR-кода
         qr_id = str(uuid.uuid4())
         
@@ -144,8 +172,58 @@ class AuthManager:
             qr.add_data(qr_url)
             qr.make(fit=True)
             
-            # Создаем изображение
+            # Создаем изображение в RGB режиме для четких квадратов
             img = qr.make_image(fill_color="black", back_color="white")
+            # Конвертируем в RGB если изображение в другом режиме (например, '1' для монохромного)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Добавляем логотип в центр QR-кода
+            width, height = img.size
+            
+            # Загружаем логотип
+            logo_path = Path(config.SESSIONS_DIR.parent) / 'static' / 'img' / 'tg_icon.png'
+            if logo_path.exists():
+                logo = Image.open(str(logo_path))
+                
+                # Конвертируем в RGBA для сохранения прозрачности
+                if logo.mode != 'RGBA':
+                    if logo.mode == 'P' and 'transparency' in logo.info:
+                        logo = logo.convert('RGBA')
+                    else:
+                        logo = logo.convert('RGBA')
+                
+                # Размер логотипа: примерно 15% от размера QR-кода
+                logo_size = int(min(width, height) * 0.15)
+                logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+                
+                # Вычисляем центр QR-кода
+                center_x = width // 2
+                center_y = height // 2
+                
+                # Вычисляем радиус белой круглой зоны: логотип + 5px с каждой стороны (итого +10px диаметра)
+                # Радиус = (логотип + 10px) / 2
+                white_zone_radius = (logo_size + 10) // 2
+                
+                # Создаем белую круглую зону в центре QR-кода
+                draw = ImageDraw.Draw(img)
+                # Рисуем белый круг
+                draw.ellipse(
+                    [
+                        center_x - white_zone_radius,
+                        center_y - white_zone_radius,
+                        center_x + white_zone_radius,
+                        center_y + white_zone_radius
+                    ],
+                    fill='white'
+                )
+                
+                # Вычисляем позицию для размещения логотипа (по центру белой зоны)
+                logo_position_x = center_x - logo_size // 2
+                logo_position_y = center_y - logo_size // 2
+                
+                # Вставляем логотип с сохранением прозрачности
+                img.paste(logo, (logo_position_x, logo_position_y), logo)
             
             # Конвертируем в base64
             buffer = io.BytesIO()
@@ -602,17 +680,34 @@ class AuthManager:
     
     def cleanup_temp_files(self):
         """
-        Очищает все temp файлы сессий (вызывается при старте сервера)
+        Очищает все temp файлы сессий (вызывается при старте сервера и при генерации нового QR)
+        Удаляет все файлы начинающиеся с temp_* включая .session, .session.journal и другие
         """
         print("[AUTH] cleanup_temp_files вызван")
-        temp_files = list(config.SESSIONS_DIR.glob("temp_*.session*"))
+        # Ищем все файлы начинающиеся с temp_
+        temp_files = []
+        # Ищем .session файлы
+        temp_files.extend(config.SESSIONS_DIR.glob("temp_*.session"))
+        # Ищем .session.journal файлы
+        temp_files.extend(config.SESSIONS_DIR.glob("temp_*.session.journal"))
+        # Ищем любые другие файлы начинающиеся с temp_
+        temp_files.extend([f for f in config.SESSIONS_DIR.iterdir() 
+                          if f.is_file() and f.name.startswith("temp_")])
+        
+        # Убираем дубликаты
+        temp_files = list(set(temp_files))
+        
         print(f"[AUTH] Найдено temp файлов: {len(temp_files)}")
+        deleted_count = 0
         for temp_file in temp_files:
             try:
-                temp_file.unlink()
-                print(f"[AUTH] Удален temp файл при старте: {temp_file.name}")
+                if temp_file.exists():
+                    temp_file.unlink()
+                    deleted_count += 1
+                    print(f"[AUTH] Удален temp файл: {temp_file.name}")
             except Exception as e:
                 print(f"[AUTH] Ошибка при удалении {temp_file.name}: {e}")
+        print(f"[AUTH] Удалено temp файлов: {deleted_count} из {len(temp_files)}")
 
 
 # Глобальный экземпляр менеджера авторизации
