@@ -59,6 +59,10 @@ python app.py
 4. Бот автоматически активируется и будет отвечать на все сообщения эхом
 5. Нажмите "Выйти" для деактивации бота и повторной авторизации
 
+## Документация
+
+- [API Документация](API.md) - Полное описание всех REST API эндпоинтов
+
 ## Структура проекта
 
 ```
@@ -68,14 +72,21 @@ qr_tg_authorization2/
 ├── userbot_manager.py     # Менеджер юзербота
 ├── config.py              # Конфигурация приложения
 ├── requirements.txt       # Зависимости Python
+├── API.md                 # API документация
 ├── .env                   # Переменные окружения (создать)
 ├── .gitignore            # Игнорируемые файлы
 ├── sessions/             # Сессии Telegram (создается автоматически)
 ├── templates/            # HTML шаблоны
-│   └── index.html
+│   ├── index.html
+│   └── inactive.html
 └── static/               # Статические файлы
     ├── style.css
-    └── main.js
+    ├── main.js
+    └── img/              # Изображения
+        ├── tg_icon.png
+        ├── app-inactive.png
+        ├── chat-bg-br.png
+        └── chat-bg-pattern.png
 ```
 
 ## Примечания
