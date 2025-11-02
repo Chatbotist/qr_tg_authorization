@@ -1,0 +1,489 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --tg-blue: #0088cc;
+    --tg-hover: #0094cc;
+    --tg-light-bg: #e8f4f9;
+    --tg-text: #222222;
+    --tg-text-secondary: #999999;
+    --tg-border: #e0e0e0;
+    --tg-shadow: rgba(0, 0, 0, 0.1);
+    --tg-danger: #dc3545;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #ffffff;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+    color: var(--tg-text);
+}
+
+.container {
+    width: 100%;
+    max-width: 460px;
+    padding: 40px 24px;
+}
+
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+}
+
+/* QR Screen */
+.qr-content {
+    text-align: center;
+}
+
+.qr-timer {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.timer-circle {
+    width: 60px;
+    height: 60px;
+    transform: rotate(-90deg);
+}
+
+.timer-bg {
+    fill: none;
+    stroke: #e0e0e0;
+    stroke-width: 3;
+}
+
+.timer-progress {
+    fill: none;
+    stroke: var(--tg-blue);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.5s ease;
+}
+
+.timer-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--tg-blue);
+}
+
+.qr-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 260px;
+    margin-bottom: 16px;
+    position: relative;
+}
+
+#qr-container img {
+    max-width: 280px;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px var(--tg-shadow);
+    background: white;
+    padding: 16px;
+}
+
+.qr-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--tg-text);
+    margin-bottom: 12px;
+}
+
+.qr-instructions {
+    text-align: left;
+    max-width: 380px;
+    margin: 0 auto;
+}
+
+.instruction-item {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.instruction-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: #54a9eb;
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 500;
+    flex-shrink: 0;
+    margin-right: 12px;
+}
+
+.instruction-text {
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--tg-text);
+    padding-top: 1px;
+}
+
+.qr-status {
+    text-align: center;
+    color: var(--tg-text-secondary);
+    font-size: 14px;
+    font-weight: 400;
+    margin-top: 8px;
+}
+
+.qr-status.loading {
+    color: var(--tg-blue);
+}
+
+.qr-status.expired {
+    color: var(--tg-danger);
+}
+
+/* Спиннер загрузки */
+.loading-spinner {
+    width: 60px;
+    height: 60px;
+    border: 4px solid var(--tg-light-bg);
+    border-top: 4px solid var(--tg-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Password Screen */
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 48px 48px 56px;
+    box-shadow: 0 2px 8px var(--tg-shadow);
+}
+
+.password-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.password-logo {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.password-logo svg,
+.password-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.password-header h1 {
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--tg-text);
+    margin-bottom: 12px;
+}
+
+.subtitle {
+    font-size: 15px;
+    color: var(--tg-text-secondary);
+    text-align: center;
+}
+
+#password-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--tg-border);
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: inherit;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+    background: white;
+}
+
+#password-input:focus {
+    outline: none;
+    border-color: var(--tg-blue);
+    box-shadow: 0 0 0 2px rgba(0, 136, 204, 0.1);
+}
+
+.error-message {
+    color: var(--tg-danger);
+    font-size: 14px;
+    text-align: center;
+    margin-top: 16px;
+}
+
+/* Profile Screen */
+.profile-container {
+    background: white;
+    border-radius: 12px;
+    padding: 48px;
+    box-shadow: 0 2px 8px var(--tg-shadow);
+}
+
+.profile-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.profile-photo {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    margin: 0 auto 20px;
+    overflow: hidden;
+    border: 3px solid var(--tg-blue);
+}
+
+.profile-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+#user-name {
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--tg-text);
+    margin-bottom: 8px;
+}
+
+.user-info {
+    font-size: 15px;
+    color: var(--tg-text-secondary);
+    margin-bottom: 4px;
+}
+
+.profile-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.bot-toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.bot-toggle-label {
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--tg-text);
+}
+
+/* Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+    border-radius: 26px;
+}
+
+.switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 22px;
+    width: 22px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input:checked + .switch-slider {
+    background-color: var(--tg-blue);
+}
+
+input:checked + .switch-slider:before {
+    transform: translateX(24px);
+}
+
+/* Buttons */
+.btn {
+    width: 100%;
+    padding: 14px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.btn-primary {
+    background: var(--tg-blue);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--tg-hover);
+}
+
+.btn-primary:active {
+    background: #0077b3;
+}
+
+.btn-danger {
+    background: var(--tg-danger);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+.btn-danger:active {
+    background: #bd2130;
+}
+
+.btn-secondary {
+    background: white;
+    color: var(--tg-blue);
+    border: 1px solid var(--tg-blue);
+}
+
+.btn-secondary:hover {
+    background: var(--tg-light-bg);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    min-width: 340px;
+    max-width: 400px;
+    text-align: center;
+}
+
+.modal-content h3 {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--tg-text);
+    margin-bottom: 16px;
+}
+
+.modal-content p {
+    font-size: 15px;
+    color: var(--tg-text-secondary);
+    margin-bottom: 24px;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.modal-buttons .btn {
+    flex: 1;
+    margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .container {
+        padding: 32px 16px;
+    }
+    
+    .card,
+    .profile-container {
+        padding: 32px 24px 40px;
+    }
+    
+    .qr-container {
+        min-height: 200px;
+        margin-bottom: 12px;
+    }
+    
+    #qr-container img {
+        max-width: 220px;
+        padding: 12px;
+    }
+    
+    .qr-title {
+        font-size: 15px;
+        margin-bottom: 10px;
+    }
+    
+    .instruction-item {
+        margin-bottom: 8px;
+    }
+    
+    .instruction-number {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+        margin-right: 10px;
+    }
+    
+    .instruction-text {
+        font-size: 12px;
+    }
+    
+    .modal-content {
+        min-width: 300px;
+        padding: 24px;
+    }
+}

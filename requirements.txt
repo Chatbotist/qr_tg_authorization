@@ -1,0 +1,6 @@
+Flask==3.0.3
+telethon==1.36.0
+qrcode==8.0
+Pillow==10.4.0
+python-dotenv==1.0.1
+
