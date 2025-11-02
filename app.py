@@ -80,6 +80,39 @@ def generate_qr():
         }), 500
 
 
+@app.route('/api/generate_qr_url', methods=['POST'])
+def generate_qr_url():
+    """
+    Генерирует новый QR-код для авторизации и возвращает его как URL ссылку
+    
+    Returns:
+        JSON с qr_id и URL к изображению QR-кода
+    """
+    try:
+        # Если уже авторизован, возвращаем сообщение
+        if auth_manager.is_authorized():
+            return jsonify({
+                'success': False,
+                'error': 'Already authorized'
+            }), 400
+        
+        qr_id, qr_path = auth_manager.generate_qr_code_as_file()
+        qr_url = f"/static/{qr_path}"
+        return jsonify({
+            'success': True,
+            'qr_id': qr_id,
+            'qr_url': qr_url
+        })
+    except Exception as e:
+        print(f"[API] generate_qr_url: ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/check_status/<qr_id>')
 def check_status(qr_id):
     """

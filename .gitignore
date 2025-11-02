@@ -28,3 +28,6 @@ sessions/
 .DS_Store
 icons/
 
+# Generated QR codes
+static/qr/
+
