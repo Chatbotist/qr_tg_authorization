@@ -603,8 +603,14 @@ def toggle_bot():
     try:
         print(f"[API] toggle_bot вызван")
         
-        if not auth_manager.is_authorized():
-            print(f"[API] toggle_bot: пользователь не авторизован")
+        # Проверяем авторизацию: бот активен, файл сессии существует, или _user_data установлен
+        bot_active = userbot_manager.is_bot_active('main')
+        session_path = auth_manager.get_session_path()
+        session_exists = Path(session_path).exists()
+        has_user_data = auth_manager.is_authorized()
+        
+        if not bot_active and not session_exists and not has_user_data:
+            print(f"[API] toggle_bot: пользователь не авторизован (бот не активен, файла сессии нет, _user_data нет)")
             return jsonify({
                 'success': False,
                 'error': 'Not authorized'
@@ -640,8 +646,14 @@ def toggle_bot():
                                 traceback.print_exc()
                                 raise
                         # Создаем новый event loop для запуска бота
-                        result, _ = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
-                        print(f"[BOT] Бот запущен")
+                        result, bot_loop = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
+                        print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
+                        # Запускаем event loop в отдельном потоке для обработки событий
+                        def run_bot_loop():
+                            asyncio.set_event_loop(bot_loop)
+                            bot_loop.run_forever()
+                        threading.Thread(target=run_bot_loop, daemon=True).start()
+                        print(f"[BOT] Event loop запущен в фоне")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
