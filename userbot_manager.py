@@ -2,6 +2,7 @@
 Менеджер юзербота для обработки сообщений
 """
 import asyncio
+import time
 from typing import Optional, Callable
 from telethon import TelegramClient, events
 from telethon.errors import AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError
@@ -99,6 +100,15 @@ class UserbotManager:
             print(f"[BOT] start_bot: обработчик зарегистрирован, сохраняем бота")
             # Сохраняем бота
             self.active_bots[session_id] = userbot_client
+            # Получаем event loop клиента (если он есть)
+            try:
+                # Telethon клиент имеет доступ к event loop через get_event_loop()
+                client_loop = userbot_client._event_loop if hasattr(userbot_client, '_event_loop') else None
+                if client_loop:
+                    self.bot_loops[session_id] = client_loop
+                    print(f"[BOT] Event loop сохранен для сессии {session_id}")
+            except Exception as e:
+                print(f"[BOT] Не удалось сохранить event loop: {e}")
             
             print(f"[BOT] Юзербот для сессии {session_id} успешно запущен")
             return True
@@ -129,6 +139,31 @@ class UserbotManager:
                 except Exception as e:
                     print(f"[BOT] Ошибка при отключении клиента: {e}")
                 
+                # Закрываем event loop если он есть
+                if session_id in self.bot_loops:
+                    bot_loop = self.bot_loops[session_id]
+                    try:
+                        # Останавливаем loop если он запущен в другом потоке
+                        if bot_loop.is_running():
+                            # Останавливаем loop через call_soon_threadsafe
+                            bot_loop.call_soon_threadsafe(bot_loop.stop)
+                            print(f"[BOT] Отправлен сигнал остановки event loop для сессии {session_id}")
+                            # Ждем немного чтобы loop остановился
+                            time.sleep(0.5)
+                        else:
+                            # Loop не запущен - можем закрыть сразу
+                            if not bot_loop.is_closed():
+                                bot_loop.close()
+                                print(f"[BOT] Event loop для сессии {session_id} закрыт")
+                    except Exception as e:
+                        print(f"[BOT] Ошибка при закрытии event loop: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        # Удаляем loop из словаря
+                        if session_id in self.bot_loops:
+                            del self.bot_loops[session_id]
+                
                 # Удаляем из активных ботов
                 del self.active_bots[session_id]
                 print(f"[BOT] Юзербот для сессии {session_id} остановлен")
@@ -138,6 +173,8 @@ class UserbotManager:
             
         except Exception as e:
             print(f"[BOT] Ошибка при остановке юзербота: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def is_bot_active(self, session_id: str) -> bool:

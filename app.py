@@ -460,7 +460,18 @@ def check_session_status():
                             pass
                         return False
                     except Exception as e:
-                        print(f"[API] check_session_status: ошибка при проверке файла сессии: {type(e).__name__}")
+                        error_name = type(e).__name__
+                        error_msg = str(e)
+                        print(f"[API] check_session_status: ошибка при проверке файла сессии: {error_name}: {error_msg}")
+                        # Для ошибок I/O (disk I/O error, database is locked) считаем сессию потенциально валидной
+                        # Это временные проблемы Render, сессия может быть валидна
+                        if "disk I/O error" in error_msg.lower() or "database is locked" in error_msg.lower():
+                            print(f"[API] check_session_status: временная ошибка I/O, считаем сессию валидной")
+                            try:
+                                await client.disconnect()
+                            except:
+                                pass
+                            return True  # Считаем сессию валидной при временных ошибках
                         try:
                             await client.disconnect()
                         except:
@@ -602,8 +613,13 @@ def toggle_bot():
                         print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
                         # Запускаем event loop в отдельном потоке для обработки событий
                         def run_bot_loop():
-                            asyncio.set_event_loop(bot_loop)
-                            bot_loop.run_forever()
+                            try:
+                                asyncio.set_event_loop(bot_loop)
+                                # Сохраняем loop в userbot_manager для последующего закрытия
+                                userbot_manager.bot_loops['main'] = bot_loop
+                                bot_loop.run_forever()
+                            except Exception as e:
+                                print(f"[BOT] Ошибка в run_bot_loop: {e}")
                         threading.Thread(target=run_bot_loop, daemon=True).start()
                         print(f"[BOT] Event loop запущен в фоне")
                     except Exception as e:
@@ -678,8 +694,13 @@ def start_bot_with_client(client, qr_loop=None):
                 print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
                 # Запускаем event loop в отдельном потоке для обработки событий
                 def run_loop():
-                    asyncio.set_event_loop(qr_loop)
-                    qr_loop.run_forever()
+                    try:
+                        asyncio.set_event_loop(qr_loop)
+                        # Сохраняем loop в userbot_manager для последующего закрытия
+                        userbot_manager.bot_loops['main'] = qr_loop
+                        qr_loop.run_forever()
+                    except Exception as e:
+                        print(f"[BOT] Ошибка в run_loop: {e}")
                 threading.Thread(target=run_loop, daemon=True).start()
                 print(f"[BOT] Event loop запущен в фоне")
                 return True
@@ -689,8 +710,13 @@ def start_bot_with_client(client, qr_loop=None):
             print(f"[BOT] Бот зарегистрирован, запускаем новый event loop в фоне...")
             # Запускаем event loop в отдельном потоке для обработки событий
             def run_new_loop():
-                asyncio.set_event_loop(bot_loop)
-                bot_loop.run_forever()
+                try:
+                    asyncio.set_event_loop(bot_loop)
+                    # Сохраняем loop в userbot_manager для последующего закрытия
+                    userbot_manager.bot_loops['main'] = bot_loop
+                    bot_loop.run_forever()
+                except Exception as e:
+                    print(f"[BOT] Ошибка в run_new_loop: {e}")
             threading.Thread(target=run_new_loop, daemon=True).start()
             print(f"[BOT] Event loop запущен в фоне")
             return True
@@ -763,7 +789,71 @@ if __name__ == '__main__':
     auth_manager.cleanup_temp_files()
     
     # Восстанавливаем сессии при запуске в отдельном потоке
-    threading.Thread(target=auth_manager.restore_sessions, daemon=True).start()
+    def restore_and_start_bot():
+        """Восстанавливает сессию и запускает бота если сессия валидна"""
+        try:
+            # Ждем немного чтобы сервер запустился
+            time.sleep(2)
+            
+            # Восстанавливаем сессию
+            auth_manager.restore_sessions()
+            
+            # Если сессия восстановлена и бот не активен - запускаем бота
+            if auth_manager.is_authorized() and not userbot_manager.is_bot_active('main'):
+                print(f"[APP] Восстановлена сессия, запускаем бота...")
+                session_path = auth_manager.get_session_path()
+                if Path(session_path).exists():
+                    def start_bot_from_session():
+                        try:
+                            print(f"[BOT] Запускаем бота из восстановленной сессии")
+                            async def init_bot():
+                                try:
+                                    await asyncio.sleep(1)
+                                    print(f"[BOT] init_bot: создаем клиента из сессии")
+                                    from telethon import TelegramClient
+                                    client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
+                                    print(f"[BOT] init_bot: подключаемся к клиенту")
+                                    await client.connect()
+                                    print(f"[BOT] init_bot: клиент подключен, регистрируем бота")
+                                    await userbot_manager.start_bot("main", client)
+                                    print(f"[BOT] init_bot: бот зарегистрирован")
+                                    return client
+                                except Exception as e:
+                                    print(f"[BOT] init_bot: ошибка: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    raise
+                            
+                            # Создаем новый event loop для запуска бота
+                            result, bot_loop = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
+                            print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
+                            # Запускаем event loop в отдельном потоке для обработки событий
+                            def run_bot_loop():
+                                try:
+                                    asyncio.set_event_loop(bot_loop)
+                                    # Сохраняем loop в userbot_manager для последующего закрытия
+                                    userbot_manager.bot_loops['main'] = bot_loop
+                                    bot_loop.run_forever()
+                                except Exception as e:
+                                    print(f"[BOT] Ошибка в run_bot_loop: {e}")
+                            threading.Thread(target=run_bot_loop, daemon=True).start()
+                            print(f"[BOT] Event loop запущен в фоне")
+                        except Exception as e:
+                            print(f"[BOT] Ошибка при запуске бота из сессии: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    
+                    threading.Thread(target=start_bot_from_session, daemon=True).start()
+                else:
+                    print(f"[APP] Файл сессии не найден, бот не запускается")
+            else:
+                print(f"[APP] Сессия не восстановлена или бот уже активен")
+        except Exception as e:
+            print(f"[APP] Ошибка при восстановлении и запуске бота: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    threading.Thread(target=restore_and_start_bot, daemon=True).start()
     
     # Запускаем периодическую очистку истекших QR
     threading.Thread(target=cleanup_expired_qr_periodically, daemon=True).start()
