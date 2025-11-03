@@ -15,8 +15,10 @@ class UserbotManager:
     """
     
     def __init__(self):
-        # Словарь активных ботов: {qr_id: client}
+        # Словарь активных ботов: {session_id: client}
         self.active_bots: dict = {}
+        # Словарь event loops для ботов: {session_id: event_loop}
+        self.bot_loops: dict = {}
         # Callback для вызова при отключении пользователем
         self.logout_callback: Optional[Callable] = None
     

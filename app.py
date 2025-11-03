@@ -272,17 +272,47 @@ def user_photo():
             print(f"[API] user_photo: пользователь не авторизован")
             return '', 404
         
-        # Получаем клиента из активного бота, если он есть
-        # Но НЕ передаем клиент напрямую, так как он работает в другом event loop
-        # Вместо этого просто проверяем, что пользователь авторизован
-        # Фото профиля можно получить позже, когда бот будет работать стабильно
+        # Пытаемся получить фото через активного бота, если он есть
+        bot_client = userbot_manager.get_client("main")
+        if bot_client:
+            print(f"[API] user_photo: используем клиент активного бота")
+            try:
+                # Получаем фото через клиент бота в его event loop
+                async def get_photo_from_bot():
+                    try:
+                        user = await bot_client.get_me()
+                        if user and user.photo:
+                            photo_data = await bot_client.download_profile_photo(user, file=bytes)
+                            return photo_data
+                        return None
+                    except Exception as e:
+                        print(f"[API] user_photo: ошибка при загрузке фото через бота: {e}")
+                        return None
+                
+                # Получаем event loop бота
+                if "main" in userbot_manager.bot_loops:
+                    bot_loop = userbot_manager.bot_loops["main"]
+                    if bot_loop and not bot_loop.is_closed():
+                        if bot_loop.is_running():
+                            # Loop запущен - используем run_coroutine_threadsafe
+                            future = asyncio.run_coroutine_threadsafe(get_photo_from_bot(), bot_loop)
+                            photo_data = future.result(timeout=10)
+                        else:
+                            # Loop не запущен - используем run_until_complete
+                            photo_data = bot_loop.run_until_complete(get_photo_from_bot())
+                        
+                        if photo_data:
+                            from io import BytesIO
+                            print(f"[API] user_photo: отправляем фото, размер: {len(photo_data)}")
+                            return send_file(BytesIO(photo_data), mimetype='image/jpeg')
+                
+                # Если не получилось через bot_loop, пробуем напрямую
+                # Это может не сработать если loop в другом потоке, но попробуем
+                print(f"[API] user_photo: пытаемся загрузить фото через auth_manager")
+            except Exception as e:
+                print(f"[API] user_photo: ошибка при работе с клиентом бота: {e}")
         
-        # Если бот активен, считаем что пользователь есть, но фото пока не загружаем
-        # чтобы избежать проблем с event loop
-        if userbot_manager.is_bot_active("main"):
-            print(f"[API] user_photo: бот активен, но не загружаем фото из-за проблем с event loop")
-            return '', 404
-        
+        # Если бот не активен или не удалось получить фото через бота - используем auth_manager
         photo_data = auth_manager.get_user_photo(client=None)
         
         if photo_data:
@@ -608,25 +638,44 @@ def toggle_bot():
                                 import traceback
                                 traceback.print_exc()
                                 raise
-                        # Создаем новый event loop для запуска бота
-                        result, bot_loop = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
-                        print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
-                        # Запускаем event loop в отдельном потоке для обработки событий
-                        def run_bot_loop():
+                        
+                        # Создаем новый event loop для бота
+                        bot_loop = asyncio.new_event_loop()
+                        
+                        def run_bot_in_thread():
                             try:
+                                # Устанавливаем loop для этого потока
                                 asyncio.set_event_loop(bot_loop)
-                                # Сохраняем loop в userbot_manager для последующего закрытия
+                                
+                                # Сохраняем loop в userbot_manager ДО запуска бота
                                 userbot_manager.bot_loops['main'] = bot_loop
+                                
+                                # Запускаем бота
+                                print(f"[BOT] Запускаем бота в новом event loop")
+                                bot_loop.run_until_complete(init_bot())
+                                print(f"[BOT] Бот зарегистрирован, запускаем event loop с run_forever...")
+                                
+                                # Теперь запускаем loop бесконечно для обработки событий
                                 bot_loop.run_forever()
                             except Exception as e:
-                                print(f"[BOT] Ошибка в run_bot_loop: {e}")
-                        threading.Thread(target=run_bot_loop, daemon=True).start()
-                        print(f"[BOT] Event loop запущен в фоне")
+                                print(f"[BOT] Ошибка в run_bot_in_thread: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                # Удаляем loop из словаря при ошибке
+                                if 'main' in userbot_manager.bot_loops:
+                                    del userbot_manager.bot_loops['main']
+                        
+                        # Запускаем поток для бота
+                        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+                        bot_thread.start()
+                        print(f"[BOT] Поток бота запущен, event loop будет работать в фоне")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
+                # Небольшая задержка чтобы бот успел запуститься
+                time.sleep(1)
             else:
                 print(f"[API] toggle_bot: бот уже активен")
         else:
@@ -679,47 +728,44 @@ def start_bot_with_client(client, qr_loop=None):
                 traceback.print_exc()
                 raise
         
-        # Используем существующий loop или создаем новый
-        if qr_loop and not qr_loop.is_closed():
-            if qr_loop.is_running():
-                # Loop уже запущен - запускаем бота через run_coroutine_threadsafe
-                future = asyncio.run_coroutine_threadsafe(init_bot(), qr_loop)
-                print(f"[BOT] Ждем завершения запуска бота")
-                future.result(timeout=10)
-                print(f"[BOT] Бот запущен, event loop работает в фоне")
-                return True
-            else:
-                # Loop не запущен - запускаем бота и затем запускаем loop в фоне
-                auth_manager._run_async_in_existing_loop(init_bot(), qr_loop, timeout=10)
-                print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
-                # Запускаем event loop в отдельном потоке для обработки событий
-                def run_loop():
-                    try:
-                        asyncio.set_event_loop(qr_loop)
-                        # Сохраняем loop в userbot_manager для последующего закрытия
-                        userbot_manager.bot_loops['main'] = qr_loop
-                        qr_loop.run_forever()
-                    except Exception as e:
-                        print(f"[BOT] Ошибка в run_loop: {e}")
-                threading.Thread(target=run_loop, daemon=True).start()
-                print(f"[BOT] Event loop запущен в фоне")
-                return True
-        else:
-            # Создаем новый loop если старый недоступен
-            result, bot_loop = auth_manager._run_async_in_new_loop(init_bot(), timeout=10)
-            print(f"[BOT] Бот зарегистрирован, запускаем новый event loop в фоне...")
-            # Запускаем event loop в отдельном потоке для обработки событий
-            def run_new_loop():
-                try:
-                    asyncio.set_event_loop(bot_loop)
-                    # Сохраняем loop в userbot_manager для последующего закрытия
-                    userbot_manager.bot_loops['main'] = bot_loop
-                    bot_loop.run_forever()
-                except Exception as e:
-                    print(f"[BOT] Ошибка в run_new_loop: {e}")
-            threading.Thread(target=run_new_loop, daemon=True).start()
-            print(f"[BOT] Event loop запущен в фоне")
-            return True
+        # Создаем новый event loop для бота - это более надежно
+        # Даже если есть qr_loop, создаем новый для бота чтобы не было проблем с закрытыми loops
+        print(f"[BOT] Создаем новый event loop для бота")
+        bot_loop = asyncio.new_event_loop()
+        
+        # Запускаем бота в отдельном потоке с новым loop
+        def run_bot_in_thread():
+            try:
+                # Устанавливаем loop для этого потока
+                asyncio.set_event_loop(bot_loop)
+                
+                # Сохраняем loop в userbot_manager ДО запуска бота
+                userbot_manager.bot_loops['main'] = bot_loop
+                
+                # Запускаем бота
+                print(f"[BOT] Запускаем бота в новом event loop")
+                bot_loop.run_until_complete(init_bot())
+                print(f"[BOT] Бот зарегистрирован, запускаем event loop с run_forever...")
+                
+                # Теперь запускаем loop бесконечно для обработки событий
+                bot_loop.run_forever()
+            except Exception as e:
+                print(f"[BOT] Ошибка в run_bot_in_thread: {e}")
+                import traceback
+                traceback.print_exc()
+                # Удаляем loop из словаря при ошибке
+                if 'main' in userbot_manager.bot_loops:
+                    del userbot_manager.bot_loops['main']
+        
+        # Запускаем поток для бота
+        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+        bot_thread.start()
+        print(f"[BOT] Поток бота запущен, event loop будет работать в фоне")
+        
+        # Даем немного времени для запуска бота
+        time.sleep(1)
+        
+        return True
     except Exception as e:
         print(f"[BOT] Ошибка при запуске бота: {e}")
         import traceback
@@ -824,20 +870,36 @@ if __name__ == '__main__':
                                     traceback.print_exc()
                                     raise
                             
-                            # Создаем новый event loop для запуска бота
-                            result, bot_loop = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
-                            print(f"[BOT] Бот зарегистрирован, запускаем event loop в фоне...")
-                            # Запускаем event loop в отдельном потоке для обработки событий
-                            def run_bot_loop():
+                            # Создаем новый event loop для бота
+                            bot_loop = asyncio.new_event_loop()
+                            
+                            def run_bot_in_thread():
                                 try:
+                                    # Устанавливаем loop для этого потока
                                     asyncio.set_event_loop(bot_loop)
-                                    # Сохраняем loop в userbot_manager для последующего закрытия
+                                    
+                                    # Сохраняем loop в userbot_manager ДО запуска бота
                                     userbot_manager.bot_loops['main'] = bot_loop
+                                    
+                                    # Запускаем бота
+                                    print(f"[BOT] Запускаем бота в новом event loop")
+                                    bot_loop.run_until_complete(init_bot())
+                                    print(f"[BOT] Бот зарегистрирован, запускаем event loop с run_forever...")
+                                    
+                                    # Теперь запускаем loop бесконечно для обработки событий
                                     bot_loop.run_forever()
                                 except Exception as e:
-                                    print(f"[BOT] Ошибка в run_bot_loop: {e}")
-                            threading.Thread(target=run_bot_loop, daemon=True).start()
-                            print(f"[BOT] Event loop запущен в фоне")
+                                    print(f"[BOT] Ошибка в run_bot_in_thread: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    # Удаляем loop из словаря при ошибке
+                                    if 'main' in userbot_manager.bot_loops:
+                                        del userbot_manager.bot_loops['main']
+                            
+                            # Запускаем поток для бота
+                            bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+                            bot_thread.start()
+                            print(f"[BOT] Поток бота запущен, event loop будет работать в фоне")
                         except Exception as e:
                             print(f"[BOT] Ошибка при запуске бота из сессии: {e}")
                             import traceback
