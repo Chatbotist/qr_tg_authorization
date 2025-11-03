@@ -97,9 +97,7 @@ def generate_qr():
         print("[API] generate_qr: начинаем генерацию QR-кода")
         print(f"[API] generate_qr: переменные окружения OK, API_ID={config.API_ID}")
         
-        # Генерируем QR-код с таймаутом на уровне приложения
-        import signal
-        
+        # Генерируем QR-код
         qr_id, qr_image = auth_manager.generate_qr_code()
         print(f"[API] generate_qr: QR-код успешно сгенерирован, qr_id: {qr_id}")
         return jsonify({
