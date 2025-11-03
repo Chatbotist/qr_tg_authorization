@@ -240,8 +240,9 @@ let logoutModal, logoutModalCancel, logoutModalConfirm;
             }
         };
         
-        // Если через 500ms получили сообщение от другой активной вкладки И мы не в фокусе - перенаправляем
+        // Если через 1000ms получили сообщение от другой активной вкладки И мы не в фокусе - перенаправляем
         // Но только если страница действительно не в фокусе после загрузки
+        // УВЕЛИЧИВАЕМ задержку чтобы дать время DOMContentLoaded выполниться и сгенерировать QR
         setTimeout(() => {
             // Проверяем еще раз - возможно страница получила фокус за это время
             // Перенаправляем только если:
@@ -249,17 +250,25 @@ let logoutModal, logoutModalCancel, logoutModalConfirm;
             // 2. Страница НЕ в фокусе
             // 3. Страница не видна
             // 4. Мы на главной странице (не на /inactive)
+            // 5. QR еще НЕ был сгенерирован (currentQrId все еще null) - это значит что мы точно не успели инициализироваться
             if (lastMessageTime > 0 && 
                 !document.hasFocus() && 
                 document.visibilityState !== 'visible' &&
-                window.location.pathname === '/') {
-                console.log('[TAB] При загрузке обнаружена другая активная вкладка, перенаправляем');
+                window.location.pathname === '/' &&
+                currentQrId === null) {
+                console.log('[TAB] При загрузке обнаружена другая активная вкладка и QR не сгенерирован, перенаправляем');
                 window.location.href = '/inactive';
             } else {
-                console.log('[TAB] Вкладка в фокусе или это единственная вкладка, остаемся на главной');
+                console.log('[TAB] Остаемся на главной:', {
+                    lastMessageTime: lastMessageTime,
+                    hasFocus: document.hasFocus(),
+                    visibilityState: document.visibilityState,
+                    pathname: window.location.pathname,
+                    currentQrId: currentQrId
+                });
             }
             checkChannel.close();
-        }, 800); // Увеличиваем задержку до 800ms для надежности
+        }, 1500); // Увеличиваем задержку до 1500ms чтобы дать время генерации QR
     }
 })();
 
