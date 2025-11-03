@@ -47,18 +47,31 @@ class AuthManager:
                 
                 print(f"[AUTH] _start_global_loop: event loop создан, is_running={self._global_loop.is_running()}, is_closed={self._global_loop.is_closed()}")
                 
-                # Используем asyncio.run() с бесконечной задачей вместо run_forever
-                # Это более надежно для обработки задач из других потоков
-                async def keep_alive():
-                    """Поддерживает loop активным и обрабатывает задачи"""
-                    print(f"[AUTH] _start_global_loop: keep_alive задача запущена")
-                    while True:
-                        await asyncio.sleep(0.1)  # Короткий интервал для быстрой обработки задач
+                # Используем run_forever() - это правильный способ для отдельного потока
+                # НО сначала нужно убедиться, что loop готов к работе
+                # Добавляем задачу ДО запуска run_forever через call_soon
+                def start_keep_alive():
+                    """Планирует задачу keep_alive в event loop"""
+                    async def keep_alive():
+                        """Поддерживает loop активным и обрабатывает задачи"""
+                        print(f"[AUTH] _start_global_loop: keep_alive задача запущена в event loop")
+                        while True:
+                            await asyncio.sleep(1)  # Интервал для обработки задач
+                    
+                    # Создаем задачу в event loop
+                    task = self._global_loop.create_task(keep_alive())
+                    print(f"[AUTH] _start_global_loop: keep_alive задача создана: {task}")
+                    return task
                 
-                print(f"[AUTH] _start_global_loop: запускаем asyncio.run(keep_alive())...")
-                # Используем asyncio.run() вместо run_forever для лучшей совместимости
-                self._global_loop.run_until_complete(keep_alive())
-                print(f"[AUTH] _start_global_loop: run_until_complete завершен (не должно произойти)")
+                # Планируем запуск задачи после старта loop
+                # Используем call_soon_threadsafe чтобы быть уверенными
+                print(f"[AUTH] _start_global_loop: планируем keep_alive задачу...")
+                self._global_loop.call_soon_threadsafe(start_keep_alive)
+                
+                print(f"[AUTH] _start_global_loop: запускаем run_forever()...")
+                # Запускаем бесконечный loop
+                self._global_loop.run_forever()
+                print(f"[AUTH] _start_global_loop: run_forever() завершен (не должно произойти)")
             except Exception as e:
                 print(f"[AUTH] _start_global_loop: ОШИБКА в event loop: {e}")
                 import traceback
