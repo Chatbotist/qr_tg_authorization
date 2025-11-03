@@ -502,9 +502,15 @@ async function checkAuthorizationStatus() {
             // Устанавливаем состояние переключателя бота в соответствии с реальным статусом
             if (data.bot_active !== undefined) {
                 botToggle.checked = data.bot_active;
+                console.log('[BOT] Toggle установлен из check_status:', data.bot_active);
             }
             // Устанавливаем active_session для проверки сессии
             currentQrId = 'active_session';
+            
+            // Дополнительная синхронизация через небольшую задержку (бот может еще запускаться)
+            setTimeout(async () => {
+                await syncBotToggleState();
+            }, 2000);
         }
     } catch (error) {
         console.error('Ошибка при проверке статуса:', error);
@@ -545,6 +551,11 @@ function showProfile(userData) {
     qrScreen.classList.remove('active');
     passwordScreen.classList.remove('active');
     profileScreen.classList.add('active');
+    
+    // Синхронизируем состояние toggle бота с сервером сразу после показа профиля
+    setTimeout(async () => {
+        await syncBotToggleState();
+    }, 500);
 }
 
 /**
@@ -678,7 +689,11 @@ async function handleLogout() {
  */
 async function handleBotToggle(event) {
     const isChecked = event.target.checked;
+    const previousState = !isChecked; // Сохраняем предыдущее состояние
+    
     try {
+        console.log('[BOT] Переключение бота:', isChecked ? 'включить' : 'выключить');
+        
         const response = await fetch('/api/toggle_bot', {
             method: 'POST',
             headers: {
@@ -690,14 +705,64 @@ async function handleBotToggle(event) {
         const data = await response.json();
         
         if (!data.success) {
-            // Если не получилось, откатываем переключатель
-            botToggle.checked = !isChecked;
+            // Если не получилось, откатываем переключатель к предыдущему состоянию
+            console.error('[BOT] Ошибка при переключении:', data.error);
+            botToggle.checked = previousState;
             alert(data.error || 'Ошибка при переключении бота');
+            return;
+        }
+        
+        // Синхронизируем toggle с реальным состоянием бота из ответа сервера
+        if (data.bot_active !== undefined) {
+            console.log('[BOT] Реальное состояние бота после операции:', data.bot_active);
+            botToggle.checked = data.bot_active;
+            
+            // Если состояние не совпадает с запрошенным - это нормально для некоторых случаев
+            // (например, бот уже был включен или выключен)
+            if (data.bot_active !== isChecked) {
+                console.log('[BOT] Состояние бота не совпадает с запрошенным (возможно, уже было установлено)');
+            }
+        } else {
+            // Если сервер не вернул состояние, делаем повторную проверку через небольшую задержку
+            console.log('[BOT] Сервер не вернул состояние бота, проверяем через 2 секунды...');
+            setTimeout(async () => {
+                await syncBotToggleState();
+            }, 2000);
         }
     } catch (error) {
-        console.error('Ошибка при переключении бота:', error);
-        botToggle.checked = !isChecked;
+        console.error('[BOT] Ошибка при переключении бота:', error);
+        botToggle.checked = previousState;
         alert('Ошибка соединения с сервером');
+    }
+}
+
+/**
+ * Синхронизирует состояние toggle с реальным состоянием бота на сервере
+ */
+async function syncBotToggleState() {
+    try {
+        // Проверяем только если мы на странице профиля
+        if (currentQrId !== 'active_session' || !profileScreen.classList.contains('active')) {
+            return;
+        }
+        
+        console.log('[BOT] Синхронизация состояния toggle с сервером...');
+        const response = await fetch('/api/active_sessions');
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.bot_active !== undefined && botToggle) {
+                const serverState = data.bot_active;
+                const currentToggleState = botToggle.checked;
+                
+                if (serverState !== currentToggleState) {
+                    console.log(`[BOT] Состояние toggle не совпадает с сервером. Сервер: ${serverState}, Toggle: ${currentToggleState}. Синхронизируем...`);
+                    botToggle.checked = serverState;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[BOT] Ошибка при синхронизации состояния toggle:', error);
     }
 }
 
@@ -815,6 +880,9 @@ function startSessionCheck() {
         if (currentQrId === 'active_session') {
             console.log('[SESSION] Проверка валидности сессии...');
             await checkSessionValidity();
+            
+            // Также синхронизируем состояние toggle бота
+            await syncBotToggleState();
         }
     }, 5000);
 }

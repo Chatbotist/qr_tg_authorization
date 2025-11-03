@@ -856,8 +856,8 @@ def toggle_bot():
                         import traceback
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
-                # Небольшая задержка чтобы бот успел запуститься
-                time.sleep(1)
+                # Небольшая задержка чтобы бот успел запуститься, затем проверяем реальное состояние
+                time.sleep(1.5)
             else:
                 print(f"[API] toggle_bot: бот уже активен")
         else:
@@ -872,8 +872,13 @@ def toggle_bot():
             else:
                 print(f"[API] toggle_bot: бот не был активен")
         
+        # Проверяем реальное состояние бота после операции и возвращаем его
+        actual_bot_active = userbot_manager.is_bot_active('main')
+        print(f"[API] toggle_bot: реальное состояние бота после операции: {actual_bot_active}")
+        
         return jsonify({
-            'success': True
+            'success': True,
+            'bot_active': actual_bot_active  # Возвращаем реальное состояние бота
         })
         
     except Exception as e:
