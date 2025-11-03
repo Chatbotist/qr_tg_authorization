@@ -71,7 +71,11 @@ def generate_qr():
     print("[API] generate_qr: запрос получен")
     try:
         # Проверяем переменные окружения ПЕРЕД началом работы
-        if not config.API_ID or not config.API_HASH:
+        print(f"[API] generate_qr: проверка переменных окружения:")
+        print(f"[API] generate_qr: API_ID={config.API_ID} (тип: {type(config.API_ID)})")
+        print(f"[API] generate_qr: API_HASH установлен={bool(config.API_HASH)}, длина={len(config.API_HASH) if config.API_HASH else 0}")
+        
+        if not config.API_ID or config.API_ID == 0 or not config.API_HASH or config.API_HASH == "":
             error_msg = "API_ID или API_HASH не установлены в переменных окружения Render!"
             print(f"[API] generate_qr: ОШИБКА КОНФИГУРАЦИИ - {error_msg}")
             print(f"[API] generate_qr: API_ID={config.API_ID}, API_HASH установлен={bool(config.API_HASH)}")
@@ -79,6 +83,8 @@ def generate_qr():
                 'success': False,
                 'error': error_msg
             }), 500
+        
+        print(f"[API] generate_qr: переменные окружения валидны!")
         
         # Если уже авторизован, возвращаем сообщение
         if auth_manager.is_authorized():
