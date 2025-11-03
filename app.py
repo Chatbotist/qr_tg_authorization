@@ -465,41 +465,41 @@ def check_session_status():
     """
     try:
         print(f"[API] check_session_status вызван")
-        # Проверяем, есть ли данные пользователя
-        if auth_manager.is_authorized():
-            # Проверяем, активен ли бот
-            bot_active = userbot_manager.is_bot_active('main')
-            
-            # Если бот активен, значит сессия точно валидна (бот работает = сессия валидна)
-            if bot_active:
-                print(f"[API] check_session_status: бот активен, сессия валидна")
-                return jsonify({
-                    'success': True,
-                    'session_valid': True
-                })
-            
-            # Если бот не активен, проверяем файл сессии
-            session_path = auth_manager.get_session_path()
-            if Path(session_path).exists():
-                # Файл сессии существует и пользователь авторизован = сессия валидна
-                # Не нужно создавать нового клиента для проверки, так как это вызывает проблемы с event loop
-                print(f"[API] check_session_status: файл сессии существует, пользователь авторизован, сессия валидна")
-                return jsonify({
-                    'success': True,
-                    'session_valid': True
-                })
-            else:
-                print(f"[API] check_session_status: файл сессии не существует")
-                return jsonify({
-                    'success': True,
-                    'session_valid': False
-                })
-        else:
-            print(f"[API] check_session_status: пользователь не авторизован")
+        
+        # Приоритет 1: Проверяем, активен ли бот - если бот активен, сессия точно валидна
+        bot_active = userbot_manager.is_bot_active('main')
+        if bot_active:
+            print(f"[API] check_session_status: бот активен, сессия валидна")
             return jsonify({
                 'success': True,
-                'session_valid': False
+                'session_valid': True
             })
+        
+        # Приоритет 2: Проверяем файл сессии - если он существует, значит сессия есть
+        session_path = auth_manager.get_session_path()
+        if Path(session_path).exists():
+            # Файл сессии существует - сессия валидна
+            # Не нужно восстанавливать _user_data здесь, он восстановится при следующем запросе
+            print(f"[API] check_session_status: файл сессии существует, сессия валидна")
+            return jsonify({
+                'success': True,
+                'session_valid': True
+            })
+        
+        # Приоритет 3: Проверяем _user_data как fallback (может быть в памяти)
+        if auth_manager.is_authorized():
+            print(f"[API] check_session_status: _user_data установлен, сессия валидна")
+            return jsonify({
+                'success': True,
+                'session_valid': True
+            })
+        
+        # Нет ни файла сессии, ни _user_data - сессия невалидна
+        print(f"[API] check_session_status: сессия не найдена (нет файла и нет _user_data)")
+        return jsonify({
+            'success': True,
+            'session_valid': False
+        })
     except Exception as e:
         print(f"[API] check_session_status: ошибка: {e}")
         import traceback
