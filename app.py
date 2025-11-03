@@ -48,6 +48,17 @@ def inactive():
         """, 200
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    """
+    Проверка здоровья сервиса для предотвращения остановки на бесплатном тарифе
+    """
+    return jsonify({
+        'status': 'ok',
+        'timestamp': time.time()
+    }), 200
+
+
 @app.route('/api/generate_qr', methods=['POST'])
 def generate_qr():
     """
@@ -658,6 +669,10 @@ if __name__ == '__main__':
     
     # Запускаем периодическую очистку истекших QR
     threading.Thread(target=cleanup_expired_qr_periodically, daemon=True).start()
+    
+    # Запускаем keepalive для бесплатного тарифа Render (только если не в production через gunicorn)
+    if os.getenv('GUNICORN_WORKERS') is None:  # Значит запущен через python app.py
+        setup_keepalive()
     
     app.run(
         host=config.FLASK_HOST,
