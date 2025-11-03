@@ -209,29 +209,46 @@ def check_status(qr_id):
                 def start_bot_thread():
                     try:
                         print(f"[BOT] Запускаем бота в потоке {threading.current_thread().name}")
-                        loop = auth_manager._get_loop()
-                        # Получаем клиент из QR
-                        client = auth_manager.get_qr_client_and_clear(qr_id)
-                        if not client:
-                            print(f"[BOT] Ошибка: клиент из QR не найден")
-                            return
-                        print(f"[BOT] Получили клиент из QR, регистрируем бота")
-                        async def init_bot():
-                            try:
-                                # Клиент уже подключен из QR
-                                print(f"[BOT] init_bot: регистрируем бота")
-                                await userbot_manager.start_bot("main", client)
-                                print(f"[BOT] init_bot: бот зарегистрирован")
-                                return client
-                            except Exception as e:
-                                print(f"[BOT] init_bot: ошибка: {e}")
-                                import traceback
-                                traceback.print_exc()
-                                raise
-                        future = asyncio.run_coroutine_threadsafe(init_bot(), loop)
-                        print(f"[BOT] Ждем завершения запуска бота")
-                        future.result(timeout=10)  # Таймаут 10 секунд
-                        print(f"[BOT] Бот запущен")
+                        # Получаем клиент из QR вместе с event loop
+                        qr_data = auth_manager.active_qr_codes.get(qr_id)
+                        if qr_data:
+                            client = qr_data.get("qr_client")
+                            qr_loop = qr_data.get("event_loop")
+                            if not client:
+                                print(f"[BOT] Ошибка: клиент из QR не найден")
+                                return
+                            print(f"[BOT] Получили клиент из QR, регистрируем бота")
+                            
+                            async def init_bot():
+                                try:
+                                    # Клиент уже подключен из QR
+                                    print(f"[BOT] init_bot: регистрируем бота")
+                                    await userbot_manager.start_bot("main", client)
+                                    print(f"[BOT] init_bot: бот зарегистрирован")
+                                    return client
+                                except Exception as e:
+                                    print(f"[BOT] init_bot: ошибка: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    raise
+                            
+                            # Используем сохраненный event loop если он есть
+                            if qr_loop and not qr_loop.is_closed():
+                                if qr_loop.is_running():
+                                    future = asyncio.run_coroutine_threadsafe(init_bot(), qr_loop)
+                                    print(f"[BOT] Ждем завершения запуска бота")
+                                    future.result(timeout=10)
+                                else:
+                                    auth_manager._run_async_in_existing_loop(init_bot(), qr_loop, timeout=10)
+                                print(f"[BOT] Бот запущен")
+                            else:
+                                # Создаем новый loop если старый недоступен
+                                result, _ = auth_manager._run_async_in_new_loop(init_bot(), timeout=10)
+                                print(f"[BOT] Бот запущен")
+                            # Очищаем QR данные после использования
+                            auth_manager.get_qr_client_and_clear(qr_id)
+                        else:
+                            print(f"[BOT] Ошибка: QR данные не найдены")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
@@ -338,29 +355,46 @@ def submit_password(qr_id):
                 def start_bot_thread():
                     try:
                         print(f"[BOT] Запускаем бота в потоке {threading.current_thread().name}")
-                        loop = auth_manager._get_loop()
-                        # Получаем клиент из QR
-                        client = auth_manager.get_qr_client_and_clear(qr_id)
-                        if not client:
-                            print(f"[BOT] Ошибка: клиент из QR не найден")
-                            return
-                        print(f"[BOT] Получили клиент из QR, регистрируем бота")
-                        async def init_bot():
-                            try:
-                                # Клиент уже подключен из QR
-                                print(f"[BOT] init_bot: регистрируем бота")
-                                await userbot_manager.start_bot("main", client)
-                                print(f"[BOT] init_bot: бот зарегистрирован")
-                                return client
-                            except Exception as e:
-                                print(f"[BOT] init_bot: ошибка: {e}")
-                                import traceback
-                                traceback.print_exc()
-                                raise
-                        future = asyncio.run_coroutine_threadsafe(init_bot(), loop)
-                        print(f"[BOT] Ждем завершения запуска бота")
-                        future.result(timeout=10)  # Таймаут 10 секунд
-                        print(f"[BOT] Бот запущен")
+                        # Получаем клиент из QR вместе с event loop
+                        qr_data = auth_manager.active_qr_codes.get(qr_id)
+                        if qr_data:
+                            client = qr_data.get("qr_client")
+                            qr_loop = qr_data.get("event_loop")
+                            if not client:
+                                print(f"[BOT] Ошибка: клиент из QR не найден")
+                                return
+                            print(f"[BOT] Получили клиент из QR, регистрируем бота")
+                            
+                            async def init_bot():
+                                try:
+                                    # Клиент уже подключен из QR
+                                    print(f"[BOT] init_bot: регистрируем бота")
+                                    await userbot_manager.start_bot("main", client)
+                                    print(f"[BOT] init_bot: бот зарегистрирован")
+                                    return client
+                                except Exception as e:
+                                    print(f"[BOT] init_bot: ошибка: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    raise
+                            
+                            # Используем сохраненный event loop если он есть
+                            if qr_loop and not qr_loop.is_closed():
+                                if qr_loop.is_running():
+                                    future = asyncio.run_coroutine_threadsafe(init_bot(), qr_loop)
+                                    print(f"[BOT] Ждем завершения запуска бота")
+                                    future.result(timeout=10)
+                                else:
+                                    auth_manager._run_async_in_existing_loop(init_bot(), qr_loop, timeout=10)
+                                print(f"[BOT] Бот запущен")
+                            else:
+                                # Создаем новый loop если старый недоступен
+                                result, _ = auth_manager._run_async_in_new_loop(init_bot(), timeout=10)
+                                print(f"[BOT] Бот запущен")
+                            # Очищаем QR данные после использования
+                            auth_manager.get_qr_client_and_clear(qr_id)
+                        else:
+                            print(f"[BOT] Ошибка: QR данные не найдены")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
