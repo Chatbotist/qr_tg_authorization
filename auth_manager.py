@@ -39,9 +39,16 @@ class AuthManager:
         """Запускает глобальный event loop в отдельном потоке"""
         def run_loop():
             """Запуск event loop"""
-            self._global_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._global_loop)
-            self._global_loop.run_forever()
+            try:
+                print(f"[AUTH] _start_global_loop: создаем новый event loop в потоке {threading.current_thread().name}")
+                self._global_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._global_loop)
+                print(f"[AUTH] _start_global_loop: event loop создан, запускаем run_forever()")
+                self._global_loop.run_forever()
+            except Exception as e:
+                print(f"[AUTH] _start_global_loop: ОШИБКА в event loop: {e}")
+                import traceback
+                traceback.print_exc()
         
         self._loop_thread = threading.Thread(target=run_loop, daemon=True)
         self._loop_thread.start()
@@ -50,8 +57,15 @@ class AuthManager:
     def _get_loop(self):
         """Получает глобальный event loop"""
         with self._loop_lock:
+            wait_count = 0
             while self._global_loop is None:
+                wait_count += 1
+                if wait_count % 100 == 0:  # Логируем каждые 1 секунду (100 * 0.01)
+                    print(f"[AUTH] _get_loop: ждем инициализации event loop... ({wait_count * 0.01:.1f} секунд)")
                 time.sleep(0.01)
+                if wait_count > 500:  # Максимум 5 секунд ожидания
+                    raise RuntimeError("Event loop не инициализирован за 5 секунд!")
+            print(f"[AUTH] _get_loop: event loop получен, is_running={self._global_loop.is_running()}")
             return self._global_loop
     
     def _run_async(self, coro, timeout=None):
@@ -278,7 +292,7 @@ class AuthManager:
         
         async def create_qr_login():
             """Внутренняя async функция для создания QR-логина"""
-            print(f"[AUTH] create_qr_login: начинаем создание QR-логина")
+            print(f"[AUTH] create_qr_login: ФУНКЦИЯ ЗАПУЩЕНА! Начинаем создание QR-логина")
             print(f"[AUTH] create_qr_login: API_ID={config.API_ID}, API_HASH установлен={bool(config.API_HASH)}")
             
             # Проверяем что переменные окружения установлены
