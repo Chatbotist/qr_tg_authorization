@@ -522,7 +522,7 @@ body.inactive-page::before {
     left: 0;
     right: 0;
     bottom: 0;
-    background-image: url('img/chat-bg-br.png');
+    background-image: url('/static/img/chat-bg-br.png');
     background-size: cover;
     background-repeat: no-repeat;
     background-position: center;
@@ -537,7 +537,7 @@ body.inactive-page::after {
     left: 0;
     right: 0;
     bottom: 0;
-    background-image: url('img/chat-bg-pattern.png');
+    background-image: url('/static/img/chat-bg-pattern.png');
     background-size: calc(100vw / 3) auto;
     background-repeat: repeat;
     background-position: top left;

@@ -303,6 +303,7 @@ async function generateNewQR(showSpinner = true) {
             qrContainer.innerHTML = '<div class="loading-spinner"></div>';
         }
         
+        console.log('[QR] Запрос на генерацию QR-кода...');
         const response = await fetch('/api/generate_qr', {
             method: 'POST',
             headers: {
@@ -310,7 +311,16 @@ async function generateNewQR(showSpinner = true) {
             }
         });
         
+        if (!response.ok) {
+            console.error('[QR] Ошибка HTTP:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('[QR] Текст ошибки:', errorText);
+            qrContainer.innerHTML = '<div class="error-message">Ошибка загрузки QR-кода. Проверьте консоль.</div>';
+            return;
+        }
+        
         const data = await response.json();
+        console.log('[QR] Ответ сервера:', data);
         
         if (data.success) {
             currentQrId = data.qr_id;
@@ -338,10 +348,12 @@ async function generateNewQR(showSpinner = true) {
             // Начинаем проверку статуса
             startStatusCheck();
         } else {
-            console.error('Ошибка генерации QR-кода');
+            console.error('[QR] Ошибка генерации QR-кода:', data.error || 'Неизвестная ошибка');
+            qrContainer.innerHTML = '<div class="error-message">Ошибка генерации QR-кода: ' + (data.error || 'Неизвестная ошибка') + '</div>';
         }
     } catch (error) {
-        console.error('Ошибка при генерации QR-кода:', error);
+        console.error('[QR] Ошибка при генерации QR-кода:', error);
+        qrContainer.innerHTML = '<div class="error-message">Ошибка соединения с сервером. Проверьте интернет-соединение.</div>';
     }
 }
 
