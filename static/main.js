@@ -296,12 +296,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await new Promise(resolve => setTimeout(resolve, 200));
     
     // Проверяем активные сессии
-    await checkActiveSessions();
+    const hasActiveSession = await checkActiveSessions();
     
     // Если нет активных сессий, генерируем новый QR
     // При генерации нового QR старые temp файлы удалятся автоматически
-    if (!currentQrId) {
+    if (!hasActiveSession && !currentQrId) {
+        console.log('[INIT] Нет активной сессии, запускаем генерацию QR-кода...');
         generateNewQR();
+    } else {
+        console.log('[INIT] Активная сессия найдена или QR уже установлен, пропускаем генерацию');
     }
     
     // Запускаем периодическую проверку сессии
@@ -626,19 +629,27 @@ async function handleBotToggle(event) {
  */
 async function checkActiveSessions() {
     try {
+        console.log('[INIT] Проверка активных сессий...');
         const response = await fetch('/api/active_sessions');
         const data = await response.json();
+        console.log('[INIT] Ответ active_sessions:', data);
         
         if (data.success && data.sessions && data.sessions.length > 0) {
             // Есть активная сессия - показываем профиль
+            console.log('[INIT] Найдена активная сессия, показываем профиль');
             const session = data.sessions[0];
             showProfile(session.user_data);
             // Устанавливаем состояние переключателя бота в соответствии с реальным статусом
-            botToggle.checked = data.bot_active || false;
+            if (botToggle) botToggle.checked = data.bot_active || false;
             currentQrId = 'active_session'; // Помечаем что сессия активна
+            return true; // Сессия найдена
+        } else {
+            console.log('[INIT] Активных сессий не найдено, будет сгенерирован QR-код');
+            return false; // Сессии нет
         }
     } catch (error) {
-        console.error('Ошибка при проверке активных сессий:', error);
+        console.error('[INIT] Ошибка при проверке активных сессий:', error);
+        return false; // При ошибке считаем что сессии нет
     }
 }
 

@@ -735,12 +735,27 @@ class AuthManager:
         
         async def restore_session():
             print(f"[AUTH] restore_session: создаем клиента")
-            await asyncio.sleep(0.5)  # Даем время БД разблокироваться
+            await asyncio.sleep(1)  # Увеличиваем задержку для разблокировки БД
             client = TelegramClient(str(self.session_path), config.API_ID, config.API_HASH)
+            max_retries = 3
+            retry_delay = 1
+            
+            for attempt in range(max_retries):
+                try:
+                    print(f"[AUTH] restore_session: попытка подключения {attempt + 1}/{max_retries}")
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                    print(f"[AUTH] restore_session: клиент подключен, проверяем авторизацию")
+                    break
+                except Exception as e:
+                    if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                        print(f"[AUTH] restore_session: база данных заблокирована, ждем {retry_delay} секунд...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Экспоненциальная задержка
+                        continue
+                    else:
+                        raise  # Повторно выбрасываем исключение если не удалось
+            
             try:
-                print(f"[AUTH] restore_session: подключаемся к клиенту")
-                await asyncio.wait_for(client.connect(), timeout=10)
-                print(f"[AUTH] restore_session: клиент подключен, проверяем авторизацию")
                 
                 if await client.is_user_authorized():
                     user = await client.get_me()

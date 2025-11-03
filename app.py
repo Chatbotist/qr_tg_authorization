@@ -56,15 +56,19 @@ def generate_qr():
     Returns:
         JSON с qr_id и base64 изображением QR-кода
     """
+    print("[API] generate_qr: запрос получен")
     try:
         # Если уже авторизован, возвращаем сообщение
         if auth_manager.is_authorized():
+            print("[API] generate_qr: пользователь уже авторизован")
             return jsonify({
                 'success': False,
                 'error': 'Already authorized'
             }), 400
         
+        print("[API] generate_qr: начинаем генерацию QR-кода")
         qr_id, qr_image = auth_manager.generate_qr_code()
+        print(f"[API] generate_qr: QR-код успешно сгенерирован, qr_id: {qr_id}")
         return jsonify({
             'success': True,
             'qr_id': qr_id,
