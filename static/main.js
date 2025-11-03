@@ -599,9 +599,15 @@ async function handlePasswordSubmit(event) {
             // Устанавливаем состояние переключателя бота в соответствии с реальным статусом
             if (data.bot_active !== undefined) {
                 botToggle.checked = data.bot_active;
+                console.log('[BOT] Toggle установлен из submit_password:', data.bot_active);
             }
             // Устанавливаем active_session для проверки сессии
             currentQrId = 'active_session';
+            
+            // Дополнительная синхронизация через небольшую задержку (бот может еще запускаться)
+            setTimeout(async () => {
+                await syncBotToggleState();
+            }, 2000);
         } else {
             passwordError.style.display = 'block';
             passwordInput.value = '';
