@@ -774,6 +774,8 @@ def logout():
     Returns:
         JSON с результатом операции
     """
+    global _bot_state_cache
+    
     try:
         print(f"[API] logout вызван")
         # Останавливаем юзербота
@@ -781,11 +783,18 @@ def logout():
             print(f"[API] logout: останавливаем бота")
             async def stop_bot():
                 await userbot_manager.stop_bot("main")
+                # Обновляем кеш после остановки
+                _bot_state_cache['active'] = False
+                _bot_state_cache['timestamp'] = time.time()
+                print(f"[API] logout: кеш состояния бота обновлен (остановлен)")
             # Создаем новый event loop для остановки бота
             result, _ = auth_manager._run_async_in_new_loop(stop_bot(), timeout=5)
             print(f"[API] logout: бот остановлен")
         else:
             print(f"[API] logout: бот не был активен")
+            # Даже если бот не был активен, обновляем кеш для согласованности
+            _bot_state_cache['active'] = False
+            _bot_state_cache['timestamp'] = time.time()
         
         # Очищаем активные QR коды перед выходом
         print(f"[API] logout: очищаем активные QR коды")
@@ -817,6 +826,8 @@ def toggle_bot():
     Returns:
         JSON с результатом операции
     """
+    global _bot_state_cache
+    
     try:
         print(f"[API] toggle_bot вызван")
         
@@ -909,7 +920,6 @@ def toggle_bot():
                 async def stop_bot():
                     await userbot_manager.stop_bot("main")
                     # Обновляем кеш после остановки
-                    global _bot_state_cache
                     _bot_state_cache['active'] = False
                     _bot_state_cache['timestamp'] = time.time()
                     print(f"[API] toggle_bot: кеш состояния бота обновлен (остановлен)")
@@ -919,7 +929,6 @@ def toggle_bot():
             else:
                 print(f"[API] toggle_bot: бот не был активен")
                 # Даже если бот не был активен, обновляем кеш для согласованности
-                global _bot_state_cache
                 _bot_state_cache['active'] = False
                 _bot_state_cache['timestamp'] = time.time()
         
@@ -928,7 +937,6 @@ def toggle_bot():
         print(f"[API] toggle_bot: реальное состояние бота после операции: {actual_bot_active}")
         
         # Обновляем кеш состояния бота сразу после операции
-        global _bot_state_cache
         _bot_state_cache['active'] = actual_bot_active
         _bot_state_cache['timestamp'] = time.time()
         print(f"[API] toggle_bot: кеш состояния бота обновлен: {actual_bot_active}")
@@ -959,12 +967,20 @@ def start_bot_with_client(client, qr_loop=None):
     Returns:
         bool: True если бот успешно запущен
     """
+    global _bot_state_cache
+    
     try:
         async def init_bot():
             try:
                 print(f"[BOT] init_bot: регистрируем бота")
                 await userbot_manager.start_bot("main", client)
                 print(f"[BOT] init_bot: бот зарегистрирован")
+                
+                # Обновляем кеш состояния бота после успешного запуска
+                _bot_state_cache['active'] = True
+                _bot_state_cache['timestamp'] = time.time()
+                print(f"[BOT] init_bot: кеш состояния бота обновлен (активен)")
+                
                 return client
             except Exception as e:
                 print(f"[BOT] init_bot: ошибка: {e}")
