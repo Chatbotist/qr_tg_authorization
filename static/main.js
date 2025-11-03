@@ -306,8 +306,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Проверяем активные сессии
     console.log('[INIT] Начинаем проверку активных сессий...');
-    const hasActiveSession = await checkActiveSessions();
+    let hasActiveSession = await checkActiveSessions();
     console.log('[INIT] Результат checkActiveSessions:', hasActiveSession, 'currentQrId:', currentQrId);
+    
+    // Если checkActiveSessions вернул false, но check_session_status показал валидную сессию
+    // Попробуем восстановить через restore_session
+    if (!hasActiveSession && !currentQrId) {
+        console.log('[INIT] Проверяем check_session_status перед генерацией QR...');
+        try {
+            const statusResponse = await fetch('/api/check_session_status');
+            if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+                if (statusData.success && statusData.session_valid === true) {
+                    console.log('[INIT] Сессия валидна по check_session_status, восстанавливаем через restore_session...');
+                    const restoreResponse = await fetch('/api/restore_session');
+                    if (restoreResponse.ok) {
+                        const restoreData = await restoreResponse.json();
+                        if (restoreData.success && restoreData.user_data) {
+                            console.log('[INIT] Сессия успешно восстановлена через restore_session');
+                            showProfile(restoreData.user_data);
+                            if (botToggle) botToggle.checked = restoreData.bot_active || false;
+                            currentQrId = 'active_session';
+                            hasActiveSession = true;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[INIT] Ошибка при проверке check_session_status:', error);
+        }
+    }
     
     // Если нет активных сессий, генерируем новый QR
     // При генерации нового QR старые temp файлы удалятся автоматически
@@ -669,15 +697,55 @@ async function handleBotToggle(event) {
 async function checkActiveSessions() {
     try {
         console.log('[INIT] Проверка активных сессий...');
+        
+        // Сначала проверяем check_session_status - он проверяет файл сессии даже если _user_data потерян
+        const statusResponse = await fetch('/api/check_session_status');
+        let sessionValid = false;
+        
+        if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            console.log('[INIT] Ответ check_session_status:', JSON.stringify(statusData));
+            sessionValid = statusData.success && statusData.session_valid === true;
+        }
+        
+        // Затем проверяем active_sessions для получения user_data
         const response = await fetch('/api/active_sessions');
         
         if (!response.ok) {
             console.error('[INIT] Ошибка HTTP при запросе active_sessions:', response.status);
+            // Если check_session_status показал валидную сессию, но active_sessions не работает - все равно считаем сессию валидной
+            if (sessionValid) {
+                console.log('[INIT] Сессия валидна по check_session_status, но active_sessions недоступен - загружаем профиль через check_status');
+                // Пытаемся загрузить данные через восстановление сессии на сервере
+                return false; // Вернем false, чтобы сгенерировать QR, но сервер восстановит сессию
+            }
             return false;
         }
         
         const data = await response.json();
         console.log('[INIT] Ответ active_sessions:', JSON.stringify(data));
+        
+        // Если check_session_status показал валидную сессию, но active_sessions пуст (например, после перезапуска Render)
+        // Восстанавливаем данные через специальный запрос
+        if (sessionValid && (!data.sessions || data.sessions.length === 0)) {
+            console.log('[INIT] Сессия валидна по check_session_status, но active_sessions пуст - восстанавливаем сессию');
+            // Отправляем запрос для восстановления данных пользователя
+            try {
+                const restoreResponse = await fetch('/api/restore_session');
+                if (restoreResponse.ok) {
+                    const restoreData = await restoreResponse.json();
+                    if (restoreData.success && restoreData.user_data) {
+                        console.log('[INIT] Сессия восстановлена, показываем профиль');
+                        showProfile(restoreData.user_data);
+                        if (botToggle) botToggle.checked = restoreData.bot_active || false;
+                        currentQrId = 'active_session';
+                        return true;
+                    }
+                }
+            } catch (restoreError) {
+                console.error('[INIT] Ошибка при восстановлении сессии:', restoreError);
+            }
+        }
         
         if (data.success && data.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
             // Есть активная сессия - показываем профиль
@@ -691,9 +759,20 @@ async function checkActiveSessions() {
                 return true; // Сессия найдена
             } else {
                 console.warn('[INIT] Сессия найдена, но нет user_data');
+                // Если check_session_status показал валидную сессию - все равно считаем сессию валидной
+                if (sessionValid) {
+                    console.log('[INIT] Сессия валидна, но нет user_data - пытаемся восстановить');
+                    return false; // Вернем false, но попробуем восстановить через restore_session
+                }
                 return false;
             }
         } else {
+            // Если check_session_status показал валидную сессию - все равно считаем сессию валидной
+            if (sessionValid) {
+                console.log('[INIT] Сессия валидна по check_session_status, но active_sessions пуст - восстанавливаем');
+                return false; // Вернем false, но попробуем восстановить через restore_session
+            }
+            
             console.log('[INIT] Активных сессий не найдено (sessions пустой или не массив), будет сгенерирован QR-код');
             console.log('[INIT] Детали:', {
                 success: data.success,

@@ -427,6 +427,16 @@ def active_sessions():
         sessions = auth_manager.get_active_sessions()
         bot_active = userbot_manager.is_bot_active('main')
         print(f"[API] active_sessions: sessions={sessions}, bot_active={bot_active}")
+        
+        # Если sessions пуст, но файл сессии существует и валиден - восстанавливаем user_data
+        if not sessions or len(sessions) == 0:
+            session_path = auth_manager.get_session_path()
+            if Path(session_path).exists():
+                print(f"[API] active_sessions: файл сессии существует, но sessions пуст - проверяем валидность")
+                # Быстрая проверка через check_session_status (не вызываем напрямую, чтобы не было рекурсии)
+                # Вместо этого просто возвращаем пустой список, фронтенд сам проверит через check_session_status
+                print(f"[API] active_sessions: файл сессии существует, но _user_data потерян (вероятно после перезапуска)")
+        
         # НЕ запускаем бота автоматически в active_sessions - только при явной авторизации
         return jsonify({
             'success': True,
@@ -434,6 +444,9 @@ def active_sessions():
             'bot_active': bot_active
         })
     except Exception as e:
+        print(f"[API] active_sessions: ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)
@@ -493,10 +506,13 @@ def check_session_status():
                         error_name = type(e).__name__
                         error_msg = str(e)
                         print(f"[API] check_session_status: ошибка при проверке файла сессии: {error_name}: {error_msg}")
-                        # Для ошибок I/O (disk I/O error, database is locked) считаем сессию потенциально валидной
+                        # Для ошибок I/O (disk I/O error, database is locked, readonly database) считаем сессию потенциально валидной
                         # Это временные проблемы Render, сессия может быть валидна
-                        if "disk I/O error" in error_msg.lower() or "database is locked" in error_msg.lower():
-                            print(f"[API] check_session_status: временная ошибка I/O, считаем сессию валидной")
+                        if ("disk I/O error" in error_msg.lower() or 
+                            "database is locked" in error_msg.lower() or 
+                            "readonly database" in error_msg.lower() or
+                            "attempt to write a readonly database" in error_msg.lower()):
+                            print(f"[API] check_session_status: временная ошибка I/O/readonly, считаем сессию валидной")
                             try:
                                 await client.disconnect()
                             except:
@@ -538,6 +554,134 @@ def check_session_status():
             })
     except Exception as e:
         print(f"[API] check_session_status: ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/restore_session')
+def restore_session():
+    """
+    Восстанавливает user_data из файла сессии (вызывается когда _user_data потерян после перезапуска)
+    
+    Returns:
+        JSON с user_data и статусом бота
+    """
+    try:
+        print(f"[API] restore_session вызван")
+        
+        # Если уже есть user_data - возвращаем его
+        if auth_manager.is_authorized():
+            print(f"[API] restore_session: _user_data уже установлен")
+            user_data = auth_manager.get_user_data()
+            bot_active = userbot_manager.is_bot_active('main')
+            return jsonify({
+                'success': True,
+                'user_data': user_data,
+                'bot_active': bot_active
+            })
+        
+        # Проверяем файл сессии
+        session_path = auth_manager.get_session_path()
+        if not Path(session_path).exists():
+            print(f"[API] restore_session: файл сессии не существует")
+            return jsonify({
+                'success': False,
+                'error': 'Session file not found'
+            }), 404
+        
+        print(f"[API] restore_session: файл сессии существует, восстанавливаем user_data...")
+        
+        # Восстанавливаем сессию (это обновит _user_data)
+        auth_manager.restore_sessions()
+        
+        # Проверяем, восстановились ли данные
+        if auth_manager.is_authorized():
+            print(f"[API] restore_session: сессия успешно восстановлена")
+            user_data = auth_manager.get_user_data()
+            bot_active = userbot_manager.is_bot_active('main')
+            
+            # Если бот не активен, но сессия валидна - запускаем бота
+            if not bot_active:
+                print(f"[API] restore_session: бот не активен, запускаем бота...")
+                def start_bot_thread():
+                    try:
+                        print(f"[BOT] Запускаем бота из restore_session в потоке {threading.current_thread().name}")
+                        async def init_bot():
+                            try:
+                                await asyncio.sleep(1)
+                                print(f"[BOT] init_bot: создаем клиента из сессии")
+                                from telethon import TelegramClient
+                                client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
+                                print(f"[BOT] init_bot: подключаемся к клиенту")
+                                await client.connect()
+                                print(f"[BOT] init_bot: клиент подключен, регистрируем бота")
+                                await userbot_manager.start_bot("main", client)
+                                print(f"[BOT] init_bot: бот зарегистрирован")
+                                return client
+                            except Exception as e:
+                                print(f"[BOT] init_bot: ошибка: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                raise
+                        
+                        # Создаем новый event loop для бота
+                        bot_loop = asyncio.new_event_loop()
+                        
+                        def run_bot_in_thread():
+                            try:
+                                # Устанавливаем loop для этого потока
+                                asyncio.set_event_loop(bot_loop)
+                                
+                                # Сохраняем loop в userbot_manager ДО запуска бота
+                                userbot_manager.bot_loops['main'] = bot_loop
+                                
+                                # Запускаем бота
+                                print(f"[BOT] Запускаем бота в новом event loop")
+                                bot_loop.run_until_complete(init_bot())
+                                print(f"[BOT] Бот зарегистрирован, запускаем event loop с run_forever...")
+                                
+                                # Теперь запускаем loop бесконечно для обработки событий
+                                bot_loop.run_forever()
+                            except Exception as e:
+                                print(f"[BOT] Ошибка в run_bot_in_thread: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                # Удаляем loop из словаря при ошибке
+                                if 'main' in userbot_manager.bot_loops:
+                                    del userbot_manager.bot_loops['main']
+                        
+                        # Запускаем поток для бота
+                        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+                        bot_thread.start()
+                        print(f"[BOT] Поток бота запущен, event loop будет работать в фоне")
+                    except Exception as e:
+                        print(f"[BOT] Ошибка в потоке бота: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                threading.Thread(target=start_bot_thread, daemon=True).start()
+                # Небольшая задержка
+                time.sleep(1)
+                bot_active = userbot_manager.is_bot_active('main')
+            
+            return jsonify({
+                'success': True,
+                'user_data': user_data,
+                'bot_active': bot_active
+            })
+        else:
+            print(f"[API] restore_session: не удалось восстановить сессию")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to restore session'
+            }), 400
+            
+    except Exception as e:
+        print(f"[API] restore_session: ошибка: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
