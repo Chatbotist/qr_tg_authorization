@@ -24,121 +24,79 @@ class AuthManager:
     
     def __init__(self):
         # Словарь для хранения активных QR-кодов
+        # Каждый QR-код хранит: qr_login, qr_client, event_loop, expires_at, temp_session
         self.active_qr_codes: Dict[str, dict] = {}
-        # Глобальный event loop для всех Telethon операций
-        self._global_loop: Optional[asyncio.AbstractEventLoop] = None
-        self._loop_thread: Optional[threading.Thread] = None
-        self._loop_lock = threading.Lock()
-        # Постоянный путь к единственной сессии (одна сессия на весь проект)
+        # Постоянный путь к единственной сессии (одна сессия на весь проекта)
         self.session_path = config.SESSIONS_DIR / "user.session"
         # Данные текущего пользователя
         self._user_data: Optional[Dict] = None
-        self._start_global_loop()
     
-    def _start_global_loop(self):
-        """Запускает глобальный event loop в отдельном потоке"""
-        def run_loop():
-            """Запуск event loop"""
-            try:
-                print(f"[AUTH] _start_global_loop: создаем новый event loop в потоке {threading.current_thread().name}")
-                with self._loop_lock:
-                    self._global_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(self._global_loop)
-                
-                print(f"[AUTH] _start_global_loop: event loop создан, is_running={self._global_loop.is_running()}, is_closed={self._global_loop.is_closed()}")
-                
-                # Используем run_forever() - это правильный способ для отдельного потока
-                # Создаем задачу keep_alive ПЕРЕД запуском run_forever
-                async def keep_alive():
-                    """Поддерживает loop активным и обрабатывает задачи"""
-                    print(f"[AUTH] _start_global_loop: keep_alive задача запущена в event loop")
-                    counter = 0
-                    while True:
-                        await asyncio.sleep(1)  # Интервал для обработки задач
-                        counter += 1
-                        if counter % 10 == 0:  # Логируем каждые 10 секунд
-                            print(f"[AUTH] _start_global_loop: keep_alive работает, прошло {counter} секунд")
-                
-                # Создаем задачу ДО запуска run_forever
-                # Важно: создаем задачу синхронно, но она начнет выполняться только после run_forever()
-                print(f"[AUTH] _start_global_loop: создаем keep_alive задачу...")
-                task = self._global_loop.create_task(keep_alive())
-                print(f"[AUTH] _start_global_loop: keep_alive задача создана: {task}")
-                
-                print(f"[AUTH] _start_global_loop: запускаем run_forever()...")
-                # Запускаем бесконечный loop - теперь он будет обрабатывать и keep_alive, и задачи из других потоков
-                self._global_loop.run_forever()
-                print(f"[AUTH] _start_global_loop: run_forever() завершен (не должно произойти)")
-            except Exception as e:
-                print(f"[AUTH] _start_global_loop: ОШИБКА в event loop: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        self._loop_thread = threading.Thread(target=run_loop, daemon=True)
-        self._loop_thread.start()
-        print("[AUTH] Глобальный event loop запущен в отдельном потоке")
-    
-    def _get_loop(self):
-        """Получает глобальный event loop"""
-        with self._loop_lock:
-            wait_count = 0
-            while self._global_loop is None:
-                wait_count += 1
-                if wait_count % 100 == 0:  # Логируем каждые 1 секунду (100 * 0.01)
-                    print(f"[AUTH] _get_loop: ждем инициализации event loop... ({wait_count * 0.01:.1f} секунд)")
-                time.sleep(0.01)
-                if wait_count > 500:  # Максимум 5 секунд ожидания
-                    raise RuntimeError("Event loop не инициализирован за 5 секунд!")
-            print(f"[AUTH] _get_loop: event loop получен, is_running={self._global_loop.is_running()}")
-            return self._global_loop
-    
-    def _run_async(self, coro, timeout=None):
+    def _run_async_in_new_loop(self, coro, timeout=60):
         """
-        Запускает async функцию в глобальном event loop
+        Запускает async функцию в новом event loop (для каждого запроса)
+        Это более надежный подход для Render на бесплатном тарифе
         
         Args:
             coro: Корутина для выполнения
-            timeout: Таймаут в секундах (None = без таймаута, 60 = по умолчанию для QR)
+            timeout: Таймаут в секундах
+            
+        Returns:
+            tuple: (результат, event_loop) - результат выполнения и loop для сохранения
+        """
+        print(f"[AUTH] _run_async_in_new_loop: создаем новый event loop для выполнения корутины")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            print(f"[AUTH] _run_async_in_new_loop: запускаем корутину с таймаутом {timeout} секунд...")
+            result = loop.run_until_complete(asyncio.wait_for(coro, timeout=timeout))
+            print(f"[AUTH] _run_async_in_new_loop: корутина завершена успешно")
+            return result, loop
+        except asyncio.TimeoutError:
+            print(f"[AUTH] _run_async_in_new_loop: ТАЙМАУТ при выполнении корутины (timeout={timeout})")
+            loop.close()
+            raise TimeoutError(f"Таймаут при выполнении операции ({timeout} секунд)")
+        except Exception as e:
+            print(f"[AUTH] _run_async_in_new_loop: ОШИБКА при выполнении корутины: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            loop.close()
+            raise
+    
+    def _run_async_in_existing_loop(self, coro, loop, timeout=None):
+        """
+        Запускает async функцию в существующем event loop
+        
+        Args:
+            coro: Корутина для выполнения
+            loop: Существующий event loop
+            timeout: Таймаут в секундах
             
         Returns:
             Результат выполнения корутины
         """
-        loop = self._get_loop()
-        print(f"[AUTH] _run_async: запускаем корутину в event loop, таймаут={timeout}")
-        print(f"[AUTH] _run_async: event loop is_running={loop.is_running()}, is_closed={loop.is_closed()}")
-        
+        print(f"[AUTH] _run_async_in_existing_loop: используем существующий event loop")
         try:
-            print(f"[AUTH] _run_async: отправляем корутину через run_coroutine_threadsafe...")
-            future = asyncio.run_coroutine_threadsafe(coro, loop)
-            print(f"[AUTH] _run_async: корутина отправлена в event loop, future создан, ждем результат...")
-            print(f"[AUTH] _run_async: future.done()={future.done()}, future.running()={future.running()}")
-        except Exception as e:
-            print(f"[AUTH] _run_async: ОШИБКА при отправке корутины: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-        
-        try:
-            print(f"[AUTH] _run_async: вызываем future.result(timeout={timeout})...")
-            if timeout:
-                result = future.result(timeout=timeout)
+            if loop.is_closed():
+                raise RuntimeError("Event loop закрыт!")
+            
+            if loop.is_running():
+                # Loop уже запущен в другом потоке - используем run_coroutine_threadsafe
+                print(f"[AUTH] _run_async_in_existing_loop: loop запущен, используем run_coroutine_threadsafe")
+                future = asyncio.run_coroutine_threadsafe(coro, loop)
+                result = future.result(timeout=timeout or 60)
             else:
-                result = future.result()
-            print(f"[AUTH] _run_async: корутина завершена успешно, результат получен")
+                # Loop не запущен - запускаем синхронно
+                print(f"[AUTH] _run_async_in_existing_loop: loop не запущен, запускаем run_until_complete")
+                if timeout:
+                    result = loop.run_until_complete(asyncio.wait_for(coro, timeout=timeout))
+                else:
+                    result = loop.run_until_complete(coro)
+            
+            print(f"[AUTH] _run_async_in_existing_loop: корутина завершена успешно")
             return result
-        except asyncio.TimeoutError:
-            print(f"[AUTH] _run_async: ТАЙМАУТ при выполнении корутины (timeout={timeout})")
-            print(f"[AUTH] _run_async: future.done()={future.done()}, future.cancelled()={future.cancelled()}")
-            if future.done() and not future.cancelled():
-                try:
-                    exc = future.exception()
-                    print(f"[AUTH] _run_async: future.exception()={exc}")
-                except Exception as e:
-                    print(f"[AUTH] _run_async: ошибка при получении exception: {e}")
-            raise
         except Exception as e:
-            print(f"[AUTH] _run_async: ОШИБКА при выполнении корутины: {type(e).__name__}: {e}")
-            print(f"[AUTH] _run_async: future.done()={future.done()}, future.exception()={future.exception() if future.done() else 'не готов'}")
+            print(f"[AUTH] _run_async_in_existing_loop: ОШИБКА: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -195,13 +153,16 @@ class AuthManager:
                     await qr_client.disconnect()
                     raise Exception("Client already authorized")
             
-            qr_login = self._run_async(get_qr_login())
+            # Используем новый event loop для каждого запроса
+            result, qr_loop = self._run_async_in_new_loop(get_qr_login(), timeout=60)
+            qr_login = result
             qr_url = qr_login.url
             
-            # Сохраняем информацию о QR-коде
+            # Сохраняем информацию о QR-коде вместе с event loop
             self.active_qr_codes[qr_id] = {
                 "qr_login": qr_login,
                 "qr_client": qr_client,
+                "event_loop": qr_loop,
                 "expires_at": time.time() + config.QR_CODE_TIMEOUT,
                 "temp_session": str(temp_session),
             }
@@ -310,13 +271,21 @@ class AuthManager:
         for qr_id, qr_data in list(self.active_qr_codes.items()):
             # Отключаем клиентов старых QR-кодов
             client = qr_data.get("qr_client")
-            if client:
+            event_loop = qr_data.get("event_loop")
+            if client and event_loop:
                 try:
                     async def disconnect():
                         await client.disconnect()
-                    self._run_async(disconnect())
+                    self._run_async_in_existing_loop(disconnect(), event_loop, timeout=5)
                 except Exception as e:
                     print(f"[AUTH] Ошибка при отключении клиента {qr_id}: {e}")
+                finally:
+                    # Закрываем event loop
+                    try:
+                        if event_loop and not event_loop.is_closed():
+                            event_loop.close()
+                    except:
+                        pass
             # Удаляем temp сессии
             temp_session = qr_data.get("temp_session")
             if temp_session:
@@ -384,10 +353,15 @@ class AuthManager:
             print(f"[AUTH] generate_qr_code: API_ID={config.API_ID}, API_HASH={'установлен' if config.API_HASH else 'НЕ УСТАНОВЛЕН'}")
             
             # Создаем QR-логин с общим таймаутом 60 секунд
-            print(f"[AUTH] generate_qr_code: вызываем create_qr_login() через _run_async с таймаутом 60 секунд...")
+            # Используем новый event loop для каждого запроса - это надежнее для Render
+            print(f"[AUTH] generate_qr_code: вызываем create_qr_login() через новый event loop...")
             try:
-                qr_login, qr_client = self._run_async(create_qr_login(), timeout=60)
-                print(f"[AUTH] generate_qr_code: _run_async завершился, получили результат")
+                # _run_async_in_new_loop возвращает (результат, loop)
+                # create_qr_login возвращает (qr_login, qr_client)
+                # Итого: ((qr_login, qr_client), loop)
+                result, qr_loop = self._run_async_in_new_loop(create_qr_login(), timeout=60)
+                qr_login, qr_client = result
+                print(f"[AUTH] generate_qr_code: create_qr_login завершился, получили результат и event loop")
             except Exception as e:
                 print(f"[AUTH] generate_qr_code: ОШИБКА при вызове create_qr_login: {type(e).__name__}: {e}")
                 import traceback
@@ -400,10 +374,11 @@ class AuthManager:
             qr_url = qr_login.url
             print(f"[AUTH] generate_qr_code: QR URL получен: {qr_url[:50]}...")
             
-            # Сохраняем информацию о QR-коде
+            # Сохраняем информацию о QR-коде вместе с event loop
             self.active_qr_codes[qr_id] = {
                 "qr_login": qr_login,
                 "qr_client": qr_client,  # Сохраняем клиента чтобы использовать wait()
+                "event_loop": qr_loop,  # Сохраняем event loop для последующего использования
                 "expires_at": time.time() + config.QR_CODE_TIMEOUT,
                 "temp_session": str(temp_session),
             }
@@ -593,7 +568,13 @@ class AuthManager:
                     print(f"[AUTH] check_auth: ошибка: {e}")
                     raise
             
-            user_data = self._run_async(check_auth())
+            # Используем сохраненный event loop для этого QR-кода
+            qr_loop = qr_data.get("event_loop")
+            if not qr_loop:
+                print(f"[AUTH] check_authorization_status: event loop не найден для qr_id {qr_id}")
+                return None
+            
+            user_data = self._run_async_in_existing_loop(check_auth(), qr_loop, timeout=5)
             
             if user_data:
                 # Проверяем, требуется ли пароль
@@ -695,7 +676,13 @@ class AuthManager:
                     print(f"[AUTH] submit_password: ошибка в sign_in_with_password: {e}")
                     raise
             
-            user_data = self._run_async(sign_in_with_password())
+            # Используем сохраненный event loop для этого QR-кода
+            qr_loop = qr_data.get("event_loop")
+            if not qr_loop:
+                print(f"[AUTH] submit_password: event loop не найден для qr_id {qr_id}")
+                return None
+            
+            user_data = self._run_async_in_existing_loop(sign_in_with_password(), qr_loop, timeout=30)
             
             if user_data:
                 # Удаляем temp сессию
@@ -825,8 +812,9 @@ class AuthManager:
                 return None
         
         try:
-            photo_data = self._run_async(download_photo(client))
-            return photo_data
+            # Используем новый event loop для каждого запроса
+            result, _ = self._run_async_in_new_loop(download_photo(client), timeout=30)
+            return result
         except Exception as e:
             print(f"[AUTH] get_user_photo: ошибка: {e}")
             return None
@@ -916,7 +904,8 @@ class AuthManager:
                 return False
         
         try:
-            self._run_async(restore_session())
+            # Используем новый event loop для восстановления сессии
+            self._run_async_in_new_loop(restore_session(), timeout=30)
         except Exception as e:
             print(f"[AUTH] restore_sessions: ошибка при восстановлении: {e}")
     
@@ -937,14 +926,22 @@ class AuthManager:
             qr_data = self.active_qr_codes[qr_id]
             # Отключаем клиента если он есть
             client = qr_data.get("qr_client")
-            if client:
+            event_loop = qr_data.get("event_loop")
+            if client and event_loop:
                 try:
                     async def disconnect():
                         await client.disconnect()
-                    self._run_async(disconnect())
+                    self._run_async_in_existing_loop(disconnect(), event_loop, timeout=5)
                     print(f"[AUTH] Клиент для {qr_id} отключен")
                 except Exception as e:
                     print(f"[AUTH] Ошибка при отключении клиента {qr_id}: {e}")
+                finally:
+                    # Закрываем event loop после отключения
+                    try:
+                        if not event_loop.is_closed():
+                            event_loop.close()
+                    except:
+                        pass
             # Удаляем temp сессии
             temp_session = qr_data.get("temp_session")
             if temp_session:
