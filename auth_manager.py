@@ -54,19 +54,34 @@ class AuthManager:
                 time.sleep(0.01)
             return self._global_loop
     
-    def _run_async(self, coro):
+    def _run_async(self, coro, timeout=None):
         """
         Запускает async функцию в глобальном event loop
         
         Args:
             coro: Корутина для выполнения
+            timeout: Таймаут в секундах (None = без таймаута, 60 = по умолчанию для QR)
             
         Returns:
             Результат выполнения корутины
         """
         loop = self._get_loop()
+        print(f"[AUTH] _run_async: запускаем корутину в event loop, таймаут={timeout}")
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
+        print(f"[AUTH] _run_async: корутина отправлена в event loop, ждем результат...")
+        try:
+            if timeout:
+                result = future.result(timeout=timeout)
+            else:
+                result = future.result()
+            print(f"[AUTH] _run_async: корутина завершена успешно")
+            return result
+        except asyncio.TimeoutError:
+            print(f"[AUTH] _run_async: ТАЙМАУТ при выполнении корутины (timeout={timeout})")
+            raise
+        except Exception as e:
+            print(f"[AUTH] _run_async: ОШИБКА при выполнении корутины: {type(e).__name__}: {e}")
+            raise
     
     def is_authorized(self) -> bool:
         """
@@ -309,11 +324,14 @@ class AuthManager:
             print(f"[AUTH] generate_qr_code: API_ID={config.API_ID}, API_HASH={'установлен' if config.API_HASH else 'НЕ УСТАНОВЛЕН'}")
             
             # Создаем QR-логин с общим таймаутом 60 секунд
-            print(f"[AUTH] generate_qr_code: вызываем create_qr_login()...")
+            print(f"[AUTH] generate_qr_code: вызываем create_qr_login() через _run_async с таймаутом 60 секунд...")
             try:
-                qr_login, qr_client = self._run_async(create_qr_login())
+                qr_login, qr_client = self._run_async(create_qr_login(), timeout=60)
+                print(f"[AUTH] generate_qr_code: _run_async завершился, получили результат")
             except Exception as e:
                 print(f"[AUTH] generate_qr_code: ОШИБКА при вызове create_qr_login: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 raise
             
             print(f"[AUTH] generate_qr_code: QR-логин получен, получаем URL...")
