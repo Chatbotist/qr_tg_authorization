@@ -58,6 +58,16 @@ def generate_qr():
     """
     print("[API] generate_qr: запрос получен")
     try:
+        # Проверяем переменные окружения ПЕРЕД началом работы
+        if not config.API_ID or not config.API_HASH:
+            error_msg = "API_ID или API_HASH не установлены в переменных окружения Render!"
+            print(f"[API] generate_qr: ОШИБКА КОНФИГУРАЦИИ - {error_msg}")
+            print(f"[API] generate_qr: API_ID={config.API_ID}, API_HASH установлен={bool(config.API_HASH)}")
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 500
+        
         # Если уже авторизован, возвращаем сообщение
         if auth_manager.is_authorized():
             print("[API] generate_qr: пользователь уже авторизован")
@@ -67,6 +77,11 @@ def generate_qr():
             }), 400
         
         print("[API] generate_qr: начинаем генерацию QR-кода")
+        print(f"[API] generate_qr: переменные окружения OK, API_ID={config.API_ID}")
+        
+        # Генерируем QR-код с таймаутом на уровне приложения
+        import signal
+        
         qr_id, qr_image = auth_manager.generate_qr_code()
         print(f"[API] generate_qr: QR-код успешно сгенерирован, qr_id: {qr_id}")
         return jsonify({
@@ -74,8 +89,15 @@ def generate_qr():
             'qr_id': qr_id,
             'qr_image': qr_image
         })
+    except TimeoutError as e:
+        error_msg = f"Таймаут при генерации QR-кода: {e}"
+        print(f"[API] generate_qr: ТАЙМАУТ - {error_msg}")
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 504  # Gateway Timeout
     except Exception as e:
-        print(f"[API] generate_qr: ошибка: {e}")
+        print(f"[API] generate_qr: ошибка: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
