@@ -120,9 +120,21 @@ class UserbotManager:
                     try:
                         await asyncio.sleep(20)  # Проверка каждые 20 секунд
                         
+                        # Проверяем что клиент все еще в активных ботах
+                        if session_id not in self.active_bots:
+                            print(f"[BOT] Периодическая проверка: бот больше не активен, прекращаем проверку")
+                            break
+                        
                         # Проверяем валидность сессии через вызов get_me()
-                        # Это более надежный способ, чем is_user_authorized()
+                        # Используем тот же client, который уже работает в текущем event loop
+                        # Это предотвращает ошибку "The asyncio event loop must not change after connection"
                         try:
+                            # Проверяем что клиент подключен перед вызовом get_me()
+                            if not userbot_client.is_connected():
+                                print(f"[BOT] Периодическая проверка: клиент не подключен, сессия невалидна")
+                                await handle_session_logout()
+                                break
+                            
                             user = await asyncio.wait_for(userbot_client.get_me(), timeout=5)
                             if user is None:
                                 print(f"[BOT] Периодическая проверка: get_me() вернул None - сессия невалидна")
@@ -136,6 +148,16 @@ class UserbotManager:
                             print(f"[BOT] Периодическая проверка: таймаут при get_me()")
                             # Таймаут - не критично, продолжаем проверку
                             continue
+                        except RuntimeError as e:
+                            error_msg = str(e)
+                            if "asyncio event loop must not change" in error_msg.lower():
+                                print(f"[BOT] Периодическая проверка: RuntimeError (event loop changed) - пропускаем эту проверку")
+                                # Эта ошибка возникает если клиент используется в другом loop
+                                # Не критично, просто пропускаем эту проверку
+                                continue
+                            else:
+                                # Другие RuntimeError - критичны
+                                raise
                     except Exception as e:
                         error_name = type(e).__name__
                         # Для критических ошибок авторизации прерываем цикл

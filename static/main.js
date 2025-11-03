@@ -722,6 +722,8 @@ async function handleBotToggle(event) {
         if (data.bot_active !== undefined) {
             console.log('[BOT] Реальное состояние бота после операции:', data.bot_active);
             botToggle.checked = data.bot_active;
+            // Обновляем lastSyncedBotState после успешной операции
+            lastSyncedBotState = data.bot_active;
             
             // Если состояние не совпадает с запрошенным - это нормально для некоторых случаев
             // (например, бот уже был включен или выключен)
@@ -732,7 +734,7 @@ async function handleBotToggle(event) {
             // Если сервер не вернул состояние, делаем повторную проверку через небольшую задержку
             console.log('[BOT] Сервер не вернул состояние бота, проверяем через 2 секунды...');
             setTimeout(async () => {
-                await syncBotToggleState();
+                await syncBotToggleState(true); // force = true, так как это после операции
             }, 2000);
         }
     } catch (error) {
@@ -742,15 +744,35 @@ async function handleBotToggle(event) {
     }
 }
 
+// Переменная для отслеживания последнего состояния toggle (для debounce)
+let lastSyncedBotState = null;
+let syncBotToggleTimeout = null;
+
 /**
  * Синхронизирует состояние toggle с реальным состоянием бота на сервере
  */
-async function syncBotToggleState() {
+async function syncBotToggleState(force = false) {
     try {
         // Проверяем только если мы на странице профиля
         if (currentQrId !== 'active_session' || !profileScreen.classList.contains('active')) {
             return;
         }
+        
+        // Debounce: не синхронизируем слишком часто (минимум 3 секунды между синхронизациями)
+        if (!force && syncBotToggleTimeout) {
+            console.log('[BOT] Синхронизация уже запланирована, пропускаем');
+            return;
+        }
+        
+        // Очищаем предыдущий timeout если есть
+        if (syncBotToggleTimeout) {
+            clearTimeout(syncBotToggleTimeout);
+        }
+        
+        // Устанавливаем новый timeout для следующей синхронизации (защита от частых вызовов)
+        syncBotToggleTimeout = setTimeout(() => {
+            syncBotToggleTimeout = null;
+        }, 3000);
         
         console.log('[BOT] Синхронизация состояния toggle с сервером...');
         const response = await fetch('/api/active_sessions');
@@ -761,9 +783,22 @@ async function syncBotToggleState() {
                 const serverState = data.bot_active;
                 const currentToggleState = botToggle.checked;
                 
-                if (serverState !== currentToggleState) {
+                // Обновляем toggle только если:
+                // 1. Состояние действительно изменилось
+                // 2. И это не то же состояние, что мы синхронизировали в последний раз (защита от колебаний)
+                if (serverState !== currentToggleState && (force || serverState !== lastSyncedBotState)) {
                     console.log(`[BOT] Состояние toggle не совпадает с сервером. Сервер: ${serverState}, Toggle: ${currentToggleState}. Синхронизируем...`);
+                    
+                    // Обновляем toggle и сохраняем последнее синхронизированное состояние
                     botToggle.checked = serverState;
+                    lastSyncedBotState = serverState;
+                } else if (serverState === currentToggleState) {
+                    // Состояния совпадают - обновляем lastSyncedBotState
+                    lastSyncedBotState = serverState;
+                } else {
+                    // Состояния не совпадают, но мы только что синхронизировали с таким же значением
+                    // Это может быть временное колебание - не обновляем toggle
+                    console.log(`[BOT] Состояние сервера: ${serverState}, но мы недавно синхронизировали такое же. Пропускаем (защита от колебаний)`);
                 }
             }
         }

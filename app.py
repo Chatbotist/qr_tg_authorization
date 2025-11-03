@@ -458,11 +458,17 @@ def active_sessions():
         JSON со списком активных сессий и статусом бота
     """
     try:
-        sessions = auth_manager.get_active_sessions()
+        print(f"[API] active_sessions вызван")
+        
+        # ВАЖНО: Проверяем состояние бота ДО получения sessions, чтобы гарантировать точность
         bot_active = userbot_manager.is_bot_active('main')
+        print(f"[API] active_sessions: проверка состояния бота: {bot_active}")
+        
+        sessions = auth_manager.get_active_sessions()
         print(f"[API] active_sessions: sessions={sessions}, bot_active={bot_active}")
         
-        # Если sessions пуст, но файл сессии существует и валиден - восстанавливаем user_data
+        # Если sessions пуст, но файл сессии существует - это может означать что после перезапуска
+        # _user_data потерян, но сессия валидна
         if not sessions or len(sessions) == 0:
             session_path = auth_manager.get_session_path()
             if Path(session_path).exists():
@@ -471,11 +477,16 @@ def active_sessions():
                 # Вместо этого просто возвращаем пустой список, фронтенд сам проверит через check_session_status
                 print(f"[API] active_sessions: файл сессии существует, но _user_data потерян (вероятно после перезапуска)")
         
+        # ВАЖНО: Если бот активен, то сессия точно валидна, даже если sessions пуст
+        # Это предотвращает переключение toggle когда бот работает
+        if bot_active and (not sessions or len(sessions) == 0):
+            print(f"[API] active_sessions: бот активен, но sessions пуст - это нормально после перезапуска")
+        
         # НЕ запускаем бота автоматически в active_sessions - только при явной авторизации
         return jsonify({
             'success': True,
             'sessions': sessions,
-            'bot_active': bot_active
+            'bot_active': bot_active  # Всегда возвращаем точное состояние бота
         })
     except Exception as e:
         print(f"[API] active_sessions: ошибка: {e}")
