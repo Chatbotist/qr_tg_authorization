@@ -475,18 +475,7 @@ def check_session_status():
                 'session_valid': True
             })
         
-        # Приоритет 2: Проверяем файл сессии - если он существует, значит сессия есть
-        session_path = auth_manager.get_session_path()
-        if Path(session_path).exists():
-            # Файл сессии существует - сессия валидна
-            # Не нужно восстанавливать _user_data здесь, он восстановится при следующем запросе
-            print(f"[API] check_session_status: файл сессии существует, сессия валидна")
-            return jsonify({
-                'success': True,
-                'session_valid': True
-            })
-        
-        # Приоритет 3: Проверяем _user_data как fallback (может быть в памяти)
+        # Приоритет 2: Проверяем _user_data (если он есть, сессия точно валидна)
         if auth_manager.is_authorized():
             print(f"[API] check_session_status: _user_data установлен, сессия валидна")
             return jsonify({
@@ -494,12 +483,66 @@ def check_session_status():
                 'session_valid': True
             })
         
-        # Нет ни файла сессии, ни _user_data - сессия невалидна
-        print(f"[API] check_session_status: сессия не найдена (нет файла и нет _user_data)")
-        return jsonify({
-            'success': True,
-            'session_valid': False
-        })
+        # Приоритет 3: Проверяем файл сессии и его валидность через Telegram API
+        session_path = auth_manager.get_session_path()
+        if Path(session_path).exists():
+            # Файл сессии существует - проверяем его валидность через быстрое подключение
+            print(f"[API] check_session_status: файл сессии существует, проверяем валидность...")
+            try:
+                from telethon import TelegramClient
+                from telethon.errors import AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError
+                
+                async def check_session_file():
+                    """Быстрая проверка валидности файла сессии"""
+                    client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
+                    try:
+                        await asyncio.wait_for(client.connect(), timeout=5)
+                        is_authorized = await client.is_user_authorized()
+                        await client.disconnect()
+                        return is_authorized
+                    except (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError):
+                        print(f"[API] check_session_status: сессия невалидна (отозвана/удалена)")
+                        try:
+                            await client.disconnect()
+                        except:
+                            pass
+                        return False
+                    except Exception as e:
+                        print(f"[API] check_session_status: ошибка при проверке файла сессии: {type(e).__name__}")
+                        try:
+                            await client.disconnect()
+                        except:
+                            pass
+                        return False
+                
+                # Используем новый event loop для быстрой проверки
+                result, loop = auth_manager._run_async_in_new_loop(check_session_file(), timeout=10)
+                if result:
+                    print(f"[API] check_session_status: файл сессии валиден")
+                    return jsonify({
+                        'success': True,
+                        'session_valid': True
+                    })
+                else:
+                    print(f"[API] check_session_status: файл сессии невалиден")
+                    return jsonify({
+                        'success': True,
+                        'session_valid': False
+                    })
+            except Exception as e:
+                print(f"[API] check_session_status: ошибка при проверке файла сессии: {e}")
+                # При ошибке считаем сессию невалидной для безопасности
+                return jsonify({
+                    'success': True,
+                    'session_valid': False
+                })
+        else:
+            # Нет файла сессии - сессия невалидна
+            print(f"[API] check_session_status: файл сессии не существует")
+            return jsonify({
+                'success': True,
+                'session_valid': False
+            })
     except Exception as e:
         print(f"[API] check_session_status: ошибка: {e}")
         import traceback
