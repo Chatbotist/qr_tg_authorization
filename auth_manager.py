@@ -454,6 +454,17 @@ class AuthManager:
                         shutil.copy(str(temp_session), str(self.session_path))
                         print(f"[AUTH] check_auth: сессия скопирована в постоянную")
                         
+                        # Удаляем файл QR-кода если он есть
+                        qr_file = qr_data.get("qr_file")
+                        if qr_file:
+                            qr_file_path = Path(qr_file)
+                            if qr_file_path.exists():
+                                try:
+                                    qr_file_path.unlink()
+                                    print(f"[AUTH] Удален файл QR-кода после авторизации: {qr_file}")
+                                except Exception as e:
+                                    print(f"[AUTH] Ошибка при удалении файла QR-кода {qr_file}: {e}")
+                        
                         # НЕ отключаем клиента - он нужен боту
                         return user_data
                     
@@ -544,6 +555,17 @@ class AuthManager:
                         import shutil
                         shutil.copy(str(temp_session), str(self.session_path))
                         print(f"[AUTH] submit_password: сессия скопирована в постоянную")
+                        
+                        # Удаляем файл QR-кода если он есть
+                        qr_file = qr_data.get("qr_file")
+                        if qr_file:
+                            qr_file_path = Path(qr_file)
+                            if qr_file_path.exists():
+                                try:
+                                    qr_file_path.unlink()
+                                    print(f"[AUTH] Удален файл QR-кода после авторизации через пароль: {qr_file}")
+                                except Exception as e:
+                                    print(f"[AUTH] Ошибка при удалении файла QR-кода {qr_file}: {e}")
                         
                         # НЕ отключаем клиента - он нужен боту
                         return user_data
