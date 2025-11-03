@@ -296,15 +296,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     await new Promise(resolve => setTimeout(resolve, 200));
     
     // Проверяем активные сессии
+    console.log('[INIT] Начинаем проверку активных сессий...');
     const hasActiveSession = await checkActiveSessions();
+    console.log('[INIT] Результат checkActiveSessions:', hasActiveSession, 'currentQrId:', currentQrId);
     
     // Если нет активных сессий, генерируем новый QR
     // При генерации нового QR старые temp файлы удалятся автоматически
     if (!hasActiveSession && !currentQrId) {
-        console.log('[INIT] Нет активной сессии, запускаем генерацию QR-кода...');
-        generateNewQR();
+        console.log('[INIT] Нет активной сессии и нет QR, запускаем генерацию QR-кода...');
+        await generateNewQR();
     } else {
-        console.log('[INIT] Активная сессия найдена или QR уже установлен, пропускаем генерацию');
+        console.log('[INIT] Пропускаем генерацию QR:', {
+            hasActiveSession: hasActiveSession,
+            currentQrId: currentQrId,
+            reason: hasActiveSession ? 'есть активная сессия' : 'QR уже установлен'
+        });
     }
     
     // Запускаем периодическую проверку сессии
@@ -631,24 +637,41 @@ async function checkActiveSessions() {
     try {
         console.log('[INIT] Проверка активных сессий...');
         const response = await fetch('/api/active_sessions');
-        const data = await response.json();
-        console.log('[INIT] Ответ active_sessions:', data);
         
-        if (data.success && data.sessions && data.sessions.length > 0) {
+        if (!response.ok) {
+            console.error('[INIT] Ошибка HTTP при запросе active_sessions:', response.status);
+            return false;
+        }
+        
+        const data = await response.json();
+        console.log('[INIT] Ответ active_sessions:', JSON.stringify(data));
+        
+        if (data.success && data.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
             // Есть активная сессия - показываем профиль
             console.log('[INIT] Найдена активная сессия, показываем профиль');
             const session = data.sessions[0];
-            showProfile(session.user_data);
-            // Устанавливаем состояние переключателя бота в соответствии с реальным статусом
-            if (botToggle) botToggle.checked = data.bot_active || false;
-            currentQrId = 'active_session'; // Помечаем что сессия активна
-            return true; // Сессия найдена
+            if (session && session.user_data) {
+                showProfile(session.user_data);
+                // Устанавливаем состояние переключателя бота в соответствии с реальным статусом
+                if (botToggle) botToggle.checked = data.bot_active || false;
+                currentQrId = 'active_session'; // Помечаем что сессия активна
+                return true; // Сессия найдена
+            } else {
+                console.warn('[INIT] Сессия найдена, но нет user_data');
+                return false;
+            }
         } else {
-            console.log('[INIT] Активных сессий не найдено, будет сгенерирован QR-код');
+            console.log('[INIT] Активных сессий не найдено (sessions пустой или не массив), будет сгенерирован QR-код');
+            console.log('[INIT] Детали:', {
+                success: data.success,
+                sessionsType: typeof data.sessions,
+                sessionsLength: data.sessions ? data.sessions.length : 'null/undefined'
+            });
             return false; // Сессии нет
         }
     } catch (error) {
         console.error('[INIT] Ошибка при проверке активных сессий:', error);
+        console.error('[INIT] Stack trace:', error.stack);
         return false; // При ошибке считаем что сессии нет
     }
 }
