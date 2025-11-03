@@ -263,14 +263,22 @@ class AuthManager:
         
         async def create_qr_login():
             """Внутренняя async функция для создания QR-логина"""
+            print(f"[AUTH] create_qr_login: начинаем создание QR-логина")
+            print(f"[AUTH] create_qr_login: API_ID={config.API_ID}, API_HASH установлен={bool(config.API_HASH)}")
             # Используем временную сессию для QR
             client = TelegramClient(str(temp_session), config.API_ID, config.API_HASH)
             try:
+                print(f"[AUTH] create_qr_login: подключаемся к Telegram...")
                 await client.connect()
+                print(f"[AUTH] create_qr_login: подключение успешно, создаем QR-логин...")
                 # Используем встроенный метод qr_login
                 qr_login = await client.qr_login()
+                print(f"[AUTH] create_qr_login: QR-логин успешно создан")
                 return qr_login, client  # Возвращаем и клиента тоже
-            except:
+            except Exception as e:
+                print(f"[AUTH] create_qr_login: ОШИБКА: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 # В случае ошибки пытаемся отключиться
                 try:
                     await client.disconnect()
@@ -279,11 +287,14 @@ class AuthManager:
                 raise
         
         try:
+            print(f"[AUTH] generate_qr_code: начинаем создание QR-логина через async функцию")
             # Создаем QR-логин
             qr_login, qr_client = self._run_async(create_qr_login())
+            print(f"[AUTH] generate_qr_code: QR-логин получен, получаем URL...")
             
             # Получаем URL для QR-кода
             qr_url = qr_login.url
+            print(f"[AUTH] generate_qr_code: QR URL получен: {qr_url[:50]}...")
             
             # Сохраняем информацию о QR-коде
             self.active_qr_codes[qr_id] = {
@@ -357,9 +368,11 @@ class AuthManager:
                 img.paste(logo, (logo_position_x, logo_position_y), logo)
             
             # Конвертируем в base64
+            print(f"[AUTH] generate_qr_code: конвертируем изображение в base64...")
             buffer = io.BytesIO()
             img.save(buffer, format='PNG')
             img_str = base64.b64encode(buffer.getvalue()).decode()
+            print(f"[AUTH] generate_qr_code: QR-код успешно сгенерирован и конвертирован, размер base64: {len(img_str)} символов")
             
             return qr_id, img_str
             
