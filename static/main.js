@@ -345,20 +345,31 @@ async function generateNewQR(showSpinner = true) {
         }
         
         console.log('[QR] Запрос на генерацию QR-кода...');
-        const response = await fetch('/api/generate_qr', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
         
-        if (!response.ok) {
-            console.error('[QR] Ошибка HTTP:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('[QR] Текст ошибки:', errorText);
-            qrContainer.innerHTML = '<div class="error-message">Ошибка загрузки QR-кода. Проверьте консоль.</div>';
-            return;
-        }
+        // Добавляем таймаут для запроса (60 секунд)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        
+        try {
+            const response = await fetch('/api/generate_qr', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            console.log('[QR] Ответ получен, статус:', response.status);
+            
+            if (!response.ok) {
+                console.error('[QR] Ошибка HTTP:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('[QR] Текст ошибки:', errorText);
+                qrContainer.innerHTML = '<div class="error-message">Ошибка загрузки QR-кода (HTTP ' + response.status + '). Проверьте консоль.</div>';
+                return;
+            }
         
         const data = await response.json();
         console.log('[QR] Ответ сервера:', data);
@@ -392,9 +403,22 @@ async function generateNewQR(showSpinner = true) {
             console.error('[QR] Ошибка генерации QR-кода:', data.error || 'Неизвестная ошибка');
             qrContainer.innerHTML = '<div class="error-message">Ошибка генерации QR-кода: ' + (data.error || 'Неизвестная ошибка') + '</div>';
         }
+        } catch (error) {
+            clearTimeout(timeoutId);
+            
+            if (error.name === 'AbortError') {
+                console.error('[QR] Таймаут запроса (60 секунд)');
+                qrContainer.innerHTML = '<div class="error-message">Таймаут при генерации QR-кода. Сервер не отвечает. Возможно, это холодный старт на бесплатном тарифе Render. Попробуйте еще раз через несколько секунд.</div>';
+            } else {
+                console.error('[QR] Ошибка при генерации QR-кода:', error);
+                console.error('[QR] Тип ошибки:', error.name);
+                console.error('[QR] Сообщение:', error.message);
+                qrContainer.innerHTML = '<div class="error-message">Ошибка соединения с сервером: ' + error.message + '. Проверьте интернет-соединение.</div>';
+            }
+        }
     } catch (error) {
-        console.error('[QR] Ошибка при генерации QR-кода:', error);
-        qrContainer.innerHTML = '<div class="error-message">Ошибка соединения с сервером. Проверьте интернет-соединение.</div>';
+        console.error('[QR] Критическая ошибка при генерации QR-кода:', error);
+        qrContainer.innerHTML = '<div class="error-message">Критическая ошибка. Проверьте консоль браузера.</div>';
     }
 }
 
