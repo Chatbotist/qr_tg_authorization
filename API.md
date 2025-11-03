@@ -33,7 +33,7 @@ http://localhost:5000
 ### Авторизация
 
 #### POST `/api/generate_qr`
-Генерирует новый QR-код для авторизации в Telegram.
+Генерирует новый QR-код для авторизации в Telegram и возвращает изображение в формате base64.
 
 **Метод:** `POST`
 
@@ -80,6 +80,64 @@ const response = await fetch('/api/generate_qr', {
 const data = await response.json();
 console.log(data.qr_id, data.qr_image);
 ```
+
+---
+
+#### POST `/api/generate_qr_url`
+Генерирует новый QR-код для авторизации в Telegram и возвращает URL на изображение.
+
+**Метод:** `POST`
+
+**Заголовки:**
+```
+Content-Type: application/json
+```
+
+**Тело запроса:** Отсутствует
+
+**Успешный ответ (200):**
+```json
+{
+  "success": true,
+  "qr_id": "uuid-string",
+  "qr_url": "/static/qr/uuid-string.png"
+}
+```
+
+**Ошибки:**
+- `400` - Пользователь уже авторизован
+  ```json
+  {
+    "success": false,
+    "error": "Already authorized"
+  }
+  ```
+- `500` - Внутренняя ошибка сервера
+  ```json
+  {
+    "success": false,
+    "error": "Error message"
+  }
+  ```
+
+**Пример использования:**
+```javascript
+const response = await fetch('/api/generate_qr_url', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+const data = await response.json();
+console.log(data.qr_id, data.qr_url);
+// Используйте data.qr_url напрямую в <img src>
+document.getElementById('qr-image').src = data.qr_url;
+```
+
+**Примечания:**
+- QR-код сохраняется как файл в директории `static/qr/`
+- Файл автоматически удаляется когда QR-код становится неактивным (истек срок действия или пользователь авторизован)
+- Использование URL вместо base64 уменьшает размер ответа API
 
 ---
 

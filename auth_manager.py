@@ -86,6 +86,137 @@ class AuthManager:
         """
         return self._user_data
         
+    def generate_qr_code_url(self) -> tuple[str, str]:
+        """
+        Генерирует новый QR-код для авторизации и сохраняет как файл
+        
+        Returns:
+            tuple: (qr_id, qr_url) - ID QR-кода и URL на изображение
+        """
+        # Если уже авторизован, не генерируем новый QR
+        if self.is_authorized():
+            raise Exception("Already authorized")
+        
+        # Удаляем все старые temp файлы перед генерацией нового QR
+        self.cleanup_temp_files()
+        
+        try:
+            # Генерируем уникальный ID для QR-кода
+            qr_id = str(uuid.uuid4())
+            
+            # Создаем временную сессию для этого QR-кода
+            temp_session = config.SESSIONS_DIR / f"temp_{qr_id}.session"
+            
+            # Создаем клиент для QR авторизации
+            qr_client = TelegramClient(str(temp_session), config.API_ID, config.API_HASH)
+            
+            # Получаем QR-код для авторизации
+            async def get_qr_login():
+                await qr_client.connect()
+                if not await qr_client.is_user_authorized():
+                    qr_login = await qr_client.qr_login()
+                    return qr_login
+                else:
+                    await qr_client.disconnect()
+                    raise Exception("Client already authorized")
+            
+            qr_login = self._run_async(get_qr_login())
+            qr_url = qr_login.url
+            
+            # Сохраняем информацию о QR-коде
+            self.active_qr_codes[qr_id] = {
+                "qr_login": qr_login,
+                "qr_client": qr_client,
+                "expires_at": time.time() + config.QR_CODE_TIMEOUT,
+                "temp_session": str(temp_session),
+            }
+            
+            # Генерируем QR-код
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+            
+            # Создаем изображение в RGB режиме для четких квадратов
+            img = qr.make_image(fill_color="black", back_color="white")
+            # Конвертируем в RGB если изображение в другом режиме (например, '1' для монохромного)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Добавляем логотип в центр QR-кода
+            width, height = img.size
+            
+            # Загружаем логотип
+            logo_path = Path(config.SESSIONS_DIR.parent) / 'static' / 'img' / 'tg_icon.png'
+            if logo_path.exists():
+                logo = Image.open(str(logo_path))
+                
+                # Конвертируем в RGBA для сохранения прозрачности
+                if logo.mode != 'RGBA':
+                    if logo.mode == 'P' and 'transparency' in logo.info:
+                        logo = logo.convert('RGBA')
+                    else:
+                        logo = logo.convert('RGBA')
+                
+                # Размер логотипа: примерно 15% от размера QR-кода
+                logo_size = int(min(width, height) * 0.15)
+                logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+                
+                # Вычисляем центр QR-кода
+                center_x = width // 2
+                center_y = height // 2
+                
+                # Вычисляем радиус белой круглой зоны: логотип + 5px с каждой стороны (итого +10px диаметра)
+                # Радиус = (логотип + 10px) / 2
+                white_zone_radius = (logo_size + 10) // 2
+                
+                # Создаем белую круглую зону в центре QR-кода
+                draw = ImageDraw.Draw(img)
+                # Рисуем белый круг
+                draw.ellipse(
+                    [
+                        center_x - white_zone_radius,
+                        center_y - white_zone_radius,
+                        center_x + white_zone_radius,
+                        center_y + white_zone_radius
+                    ],
+                    fill='white'
+                )
+                
+                # Вычисляем позицию для размещения логотипа (по центру белой зоны)
+                logo_position_x = center_x - logo_size // 2
+                logo_position_y = center_y - logo_size // 2
+                
+                # Вставляем логотип с сохранением прозрачности
+                img.paste(logo, (logo_position_x, logo_position_y), logo)
+            
+            # Создаем директорию для QR-кодов если её нет
+            qr_dir = Path(config.SESSIONS_DIR.parent) / 'static' / 'qr'
+            qr_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Сохраняем QR-код как файл
+            qr_filename = f"{qr_id}.png"
+            qr_filepath = qr_dir / qr_filename
+            img.save(qr_filepath, 'PNG')
+            
+            # Сохраняем путь к файлу в данных QR-кода
+            self.active_qr_codes[qr_id]['qr_file'] = str(qr_filepath)
+            
+            # Возвращаем URL
+            qr_url_path = f"/static/qr/{qr_filename}"
+            
+            return qr_id, qr_url_path
+            
+        except Exception as e:
+            print(f"[AUTH] Ошибка при генерации QR-кода: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
     def generate_qr_code(self) -> tuple[str, str]:
         """
         Генерирует новый QR-код для авторизации
@@ -234,123 +365,6 @@ class AuthManager:
             
         except Exception as e:
             print(f"[AUTH] Ошибка при генерации QR-кода: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-    
-    def generate_qr_code_as_file(self) -> tuple[str, str]:
-        """
-        Генерирует QR-код и сохраняет его как файл
-        
-        Returns:
-            tuple: (qr_id, file_path) где file_path - относительный путь к файлу
-        """
-        try:
-            print(f"[AUTH] generate_qr_code_as_file: начало генерации")
-            
-            # Генерируем ID для QR-кода
-            qr_id = str(uuid.uuid4())
-            
-            # Создаем директорию для QR-кодов если её нет
-            qr_dir = Path(config.SESSIONS_DIR.parent) / 'static' / 'qr'
-            qr_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Создаем временную сессию для QR-логина
-            temp_session = config.SESSIONS_DIR / f"temp_{qr_id}.session"
-            
-            async def create_qr_login():
-                client = TelegramClient(str(temp_session), config.API_ID, config.API_HASH)
-                try:
-                    await client.connect()
-                    qr_login = await client.qr_login()
-                    return qr_login, client
-                except:
-                    try:
-                        await client.disconnect()
-                    except:
-                        pass
-                    raise
-            
-            try:
-                qr_login, qr_client = self._run_async(create_qr_login())
-            except Exception as e:
-                print(f"[AUTH] Ошибка при создании QR-логина: {e}")
-                raise
-            
-            # Получаем URL для QR-кода
-            qr_url = qr_login.url
-            
-            # Сохраняем информацию о QR-коде
-            self.active_qr_codes[qr_id] = {
-                "qr_login": qr_login,
-                "qr_client": qr_client,
-                "expires_at": time.time() + config.QR_CODE_TIMEOUT,
-                "temp_session": str(temp_session),
-                "qr_file": str(qr_dir / f"{qr_id}.png"),  # Сохраняем путь к файлу
-            }
-            
-            # Генерируем QR-код
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(qr_url)
-            qr.make(fit=True)
-            
-            # Создаем изображение в RGB режиме
-            img = qr.make_image(fill_color="black", back_color="white")
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Добавляем логотип в центр QR-кода
-            width, height = img.size
-            
-            logo_path = Path(config.SESSIONS_DIR.parent) / 'static' / 'img' / 'tg_icon.png'
-            if logo_path.exists():
-                logo = Image.open(str(logo_path))
-                
-                if logo.mode != 'RGBA':
-                    if logo.mode == 'P' and 'transparency' in logo.info:
-                        logo = logo.convert('RGBA')
-                    else:
-                        logo = logo.convert('RGBA')
-                
-                logo_size = int(min(width, height) * 0.15)
-                logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
-                
-                center_x = width // 2
-                center_y = height // 2
-                white_zone_radius = (logo_size + 10) // 2
-                
-                draw = ImageDraw.Draw(img)
-                draw.ellipse(
-                    [
-                        center_x - white_zone_radius,
-                        center_y - white_zone_radius,
-                        center_x + white_zone_radius,
-                        center_y + white_zone_radius
-                    ],
-                    fill='white'
-                )
-                
-                logo_position_x = center_x - logo_size // 2
-                logo_position_y = center_y - logo_size // 2
-                img.paste(logo, (logo_position_x, logo_position_y), logo)
-            
-            # Сохраняем QR-код как файл
-            qr_file_path = qr_dir / f"{qr_id}.png"
-            img.save(str(qr_file_path), format='PNG')
-            print(f"[AUTH] generate_qr_code_as_file: QR сохранен в {qr_file_path}")
-            
-            # Возвращаем относительный путь для URL
-            relative_path = f"qr/{qr_id}.png"
-            
-            return qr_id, relative_path
-            
-        except Exception as e:
-            print(f"[AUTH] Ошибка при генерации QR-кода как файла: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -752,7 +766,7 @@ class AuthManager:
     
     def cleanup_expired_qr(self):
         """
-        Очищает истекшие QR-коды из памяти, отключает их клиентов и удаляет файлы QR-кодов
+        Очищает истекшие QR-коды из памяти и отключает их клиентов
         """
         current_time = time.time()
         expired_qr_ids = []
@@ -775,18 +789,27 @@ class AuthManager:
                     print(f"[AUTH] Клиент для {qr_id} отключен")
                 except Exception as e:
                     print(f"[AUTH] Ошибка при отключении клиента {qr_id}: {e}")
-            
+            # Удаляем temp сессии
+            temp_session = qr_data.get("temp_session")
+            if temp_session:
+                temp_session_file = Path(temp_session)
+                if temp_session_file.exists():
+                    try:
+                        temp_session_file.unlink()
+                        print(f"[AUTH] Удален temp файл: {temp_session}")
+                    except Exception as e:
+                        print(f"[AUTH] Ошибка при удалении {temp_session}: {e}")
             # Удаляем файл QR-кода если он есть
             qr_file = qr_data.get("qr_file")
             if qr_file:
-                try:
-                    qr_file_path = Path(qr_file)
-                    if qr_file_path.exists():
+                qr_file_path = Path(qr_file)
+                if qr_file_path.exists():
+                    try:
                         qr_file_path.unlink()
                         print(f"[AUTH] Удален файл QR-кода: {qr_file}")
-                except Exception as e:
-                    print(f"[AUTH] Ошибка при удалении файла QR-кода {qr_id}: {e}")
-            
+                    except Exception as e:
+                        print(f"[AUTH] Ошибка при удалении файла QR-кода {qr_file}: {e}")
+            # Удаляем из словаря
             del self.active_qr_codes[qr_id]
     
     def get_qr_client_and_clear(self, qr_id: str) -> Optional[TelegramClient]:
