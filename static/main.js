@@ -211,23 +211,10 @@ function initTabTrackingFallback() {
     });
 }
 
-// Элементы DOM
-const qrScreen = document.getElementById('qr-screen');
-const passwordScreen = document.getElementById('password-screen');
-const profileScreen = document.getElementById('profile-screen');
-const qrContainer = document.getElementById('qr-container');
-const userPhoto = document.getElementById('user-photo');
-const userName = document.getElementById('user-name');
-const userUsername = document.getElementById('user-username');
-const userPhone = document.getElementById('user-phone');
-const logoutBtn = document.getElementById('logout-btn');
-const passwordForm = document.getElementById('password-form');
-const passwordInput = document.getElementById('password-input');
-const passwordError = document.getElementById('password-error');
-const botToggle = document.getElementById('bot-toggle');
-const logoutModal = document.getElementById('logout-modal');
-const logoutModalCancel = document.getElementById('logout-modal-cancel');
-const logoutModalConfirm = document.getElementById('logout-modal-confirm');
+// Элементы DOM (объявляем после DOMContentLoaded для надежности)
+let qrScreen, passwordScreen, profileScreen, qrContainer, userPhoto, userName, userUsername, userPhone;
+let logoutBtn, passwordForm, passwordInput, passwordError, botToggle;
+let logoutModal, logoutModalCancel, logoutModalConfirm;
 
 // Проверка на активную вкладку при загрузке (до DOMContentLoaded)
 // Новая вкладка не должна сразу перенаправляться - только если она не в фокусе
@@ -253,19 +240,55 @@ const logoutModalConfirm = document.getElementById('logout-modal-confirm');
             }
         };
         
-        // Если через 300ms получили сообщение от другой активной вкладки И мы не в фокусе - перенаправляем
+        // Если через 500ms получили сообщение от другой активной вкладки И мы не в фокусе - перенаправляем
+        // Но только если страница действительно не в фокусе после загрузки
         setTimeout(() => {
-            if (lastMessageTime > 0 && !document.hasFocus()) {
+            // Проверяем еще раз - возможно страница получила фокус за это время
+            // Перенаправляем только если:
+            // 1. Есть сообщение от другой вкладки (lastMessageTime > 0)
+            // 2. Страница НЕ в фокусе
+            // 3. Страница не видна
+            // 4. Мы на главной странице (не на /inactive)
+            if (lastMessageTime > 0 && 
+                !document.hasFocus() && 
+                document.visibilityState !== 'visible' &&
+                window.location.pathname === '/') {
                 console.log('[TAB] При загрузке обнаружена другая активная вкладка, перенаправляем');
                 window.location.href = '/inactive';
+            } else {
+                console.log('[TAB] Вкладка в фокусе или это единственная вкладка, остаемся на главной');
             }
             checkChannel.close();
-        }, 300);
+        }, 800); // Увеличиваем задержку до 800ms для надежности
     }
 })();
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', async () => {
+    // Инициализируем элементы DOM
+    qrScreen = document.getElementById('qr-screen');
+    passwordScreen = document.getElementById('password-screen');
+    profileScreen = document.getElementById('profile-screen');
+    qrContainer = document.getElementById('qr-container');
+    userPhoto = document.getElementById('user-photo');
+    userName = document.getElementById('user-name');
+    userUsername = document.getElementById('user-username');
+    userPhone = document.getElementById('user-phone');
+    logoutBtn = document.getElementById('logout-btn');
+    passwordForm = document.getElementById('password-form');
+    passwordInput = document.getElementById('password-input');
+    passwordError = document.getElementById('password-error');
+    botToggle = document.getElementById('bot-toggle');
+    logoutModal = document.getElementById('logout-modal');
+    logoutModalCancel = document.getElementById('logout-modal-cancel');
+    logoutModalConfirm = document.getElementById('logout-modal-confirm');
+    
+    // Проверяем что элементы найдены
+    if (!qrContainer) {
+        console.error('[ERROR] Элемент qr-container не найден!');
+        return;
+    }
+    
     // Инициализируем отслеживание активной вкладки ПЕРЕД всем остальным
     initTabTracking();
     
@@ -285,11 +308,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     startSessionCheck();
     
     // Обработчики событий
-    logoutBtn.addEventListener('click', showLogoutModal);
-    passwordForm.addEventListener('submit', handlePasswordSubmit);
-    botToggle.addEventListener('change', handleBotToggle);
-    logoutModalCancel.addEventListener('click', hideLogoutModal);
-    logoutModalConfirm.addEventListener('click', handleLogout);
+    if (logoutBtn) logoutBtn.addEventListener('click', showLogoutModal);
+    if (passwordForm) passwordForm.addEventListener('submit', handlePasswordSubmit);
+    if (botToggle) botToggle.addEventListener('change', handleBotToggle);
+    if (logoutModalCancel) logoutModalCancel.addEventListener('click', hideLogoutModal);
+    if (logoutModalConfirm) logoutModalConfirm.addEventListener('click', handleLogout);
 });
 
 /**
