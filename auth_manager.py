@@ -41,10 +41,16 @@ class AuthManager:
             """Запуск event loop"""
             try:
                 print(f"[AUTH] _start_global_loop: создаем новый event loop в потоке {threading.current_thread().name}")
-                self._global_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._global_loop)
-                print(f"[AUTH] _start_global_loop: event loop создан, запускаем run_forever()")
+                with self._loop_lock:
+                    self._global_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._global_loop)
+                
+                print(f"[AUTH] _start_global_loop: event loop создан, is_running={self._global_loop.is_running()}, is_closed={self._global_loop.is_closed()}")
+                print(f"[AUTH] _start_global_loop: запускаем run_forever()...")
+                
+                # Запускаем бесконечный loop
                 self._global_loop.run_forever()
+                print(f"[AUTH] _start_global_loop: run_forever() завершен (не должно произойти)")
             except Exception as e:
                 print(f"[AUTH] _start_global_loop: ОШИБКА в event loop: {e}")
                 import traceback
@@ -81,20 +87,42 @@ class AuthManager:
         """
         loop = self._get_loop()
         print(f"[AUTH] _run_async: запускаем корутину в event loop, таймаут={timeout}")
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        print(f"[AUTH] _run_async: корутина отправлена в event loop, ждем результат...")
+        print(f"[AUTH] _run_async: event loop is_running={loop.is_running()}, is_closed={loop.is_closed()}")
+        
         try:
+            print(f"[AUTH] _run_async: отправляем корутину через run_coroutine_threadsafe...")
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            print(f"[AUTH] _run_async: корутина отправлена в event loop, future создан, ждем результат...")
+            print(f"[AUTH] _run_async: future.done()={future.done()}, future.running()={future.running()}")
+        except Exception as e:
+            print(f"[AUTH] _run_async: ОШИБКА при отправке корутины: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        try:
+            print(f"[AUTH] _run_async: вызываем future.result(timeout={timeout})...")
             if timeout:
                 result = future.result(timeout=timeout)
             else:
                 result = future.result()
-            print(f"[AUTH] _run_async: корутина завершена успешно")
+            print(f"[AUTH] _run_async: корутина завершена успешно, результат получен")
             return result
         except asyncio.TimeoutError:
             print(f"[AUTH] _run_async: ТАЙМАУТ при выполнении корутины (timeout={timeout})")
+            print(f"[AUTH] _run_async: future.done()={future.done()}, future.cancelled()={future.cancelled()}")
+            if future.done() and not future.cancelled():
+                try:
+                    exc = future.exception()
+                    print(f"[AUTH] _run_async: future.exception()={exc}")
+                except Exception as e:
+                    print(f"[AUTH] _run_async: ошибка при получении exception: {e}")
             raise
         except Exception as e:
             print(f"[AUTH] _run_async: ОШИБКА при выполнении корутины: {type(e).__name__}: {e}")
+            print(f"[AUTH] _run_async: future.done()={future.done()}, future.exception()={future.exception() if future.done() else 'не готов'}")
+            import traceback
+            traceback.print_exc()
             raise
     
     def is_authorized(self) -> bool:
