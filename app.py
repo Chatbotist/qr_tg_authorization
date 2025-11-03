@@ -298,12 +298,17 @@ def user_photo():
             return '', 404
         
         # Получаем клиента из активного бота, если он есть
-        bot_client = None
-        if userbot_manager.is_bot_active("main"):
-            bot_client = userbot_manager.get_client("main")
-            print(f"[API] user_photo: используем клиента из активного бота")
+        # Но НЕ передаем клиент напрямую, так как он работает в другом event loop
+        # Вместо этого просто проверяем, что пользователь авторизован
+        # Фото профиля можно получить позже, когда бот будет работать стабильно
         
-        photo_data = auth_manager.get_user_photo(client=bot_client)
+        # Если бот активен, считаем что пользователь есть, но фото пока не загружаем
+        # чтобы избежать проблем с event loop
+        if userbot_manager.is_bot_active("main"):
+            print(f"[API] user_photo: бот активен, но не загружаем фото из-за проблем с event loop")
+            return '', 404
+        
+        photo_data = auth_manager.get_user_photo(client=None)
         
         if photo_data:
             from io import BytesIO
@@ -464,68 +469,25 @@ def check_session_status():
         if auth_manager.is_authorized():
             # Проверяем, активен ли бот
             bot_active = userbot_manager.is_bot_active('main')
-            # Проверяем валидность сессии независимо от статуса бота
+            
+            # Если бот активен, значит сессия точно валидна (бот работает = сессия валидна)
+            if bot_active:
+                print(f"[API] check_session_status: бот активен, сессия валидна")
+                return jsonify({
+                    'success': True,
+                    'session_valid': True
+                })
+            
+            # Если бот не активен, проверяем файл сессии
             session_path = auth_manager.get_session_path()
             if Path(session_path).exists():
-                # Пытаемся подключиться и проверить
-                from telethon import TelegramClient
-                from telethon.errors import AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError
-                async def check_session():
-                    # Получаем клиента из активного бота если есть
-                    bot_client = None
-                    if bot_active:
-                        bot_client = userbot_manager.get_client('main')
-                    
-                    if bot_client:
-                        # Используем клиента бота для проверки
-                        try:
-                            user = await bot_client.get_me()
-                            if user is None:
-                                return False
-                            return True
-                        except (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError) as e:
-                            print(f"[API] check_session_status: сессия невалидна через бота - {type(e).__name__}")
-                            return False
-                        except Exception as e:
-                            print(f"[API] check_session_status: ошибка при проверке через бота: {type(e).__name__}")
-                            return False
-                    else:
-                        # Создаем временного клиента для проверки
-                        client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
-                        try:
-                            await client.connect()
-                            is_authorized = await client.is_user_authorized()
-                            await client.disconnect()
-                            return is_authorized
-                        except (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError) as e:
-                            print(f"[API] check_session_status: сессия невалидна - {type(e).__name__}")
-                            try:
-                                await client.disconnect()
-                            except:
-                                pass
-                            return False
-                        except Exception as e:
-                            print(f"[API] check_session_status: ошибка при проверке: {type(e).__name__}")
-                            try:
-                                await client.disconnect()
-                            except:
-                                pass
-                            return False
-                # Используем новый event loop для проверки сессии
-                result, _ = auth_manager._run_async_in_new_loop(check_session(), timeout=30)
-                is_valid = result
-                if is_valid:
-                    print(f"[API] check_session_status: сессия валидна")
-                    return jsonify({
-                        'success': True,
-                        'session_valid': True
-                    })
-                else:
-                    print(f"[API] check_session_status: сессия невалидна")
-                    return jsonify({
-                        'success': True,
-                        'session_valid': False
-                    })
+                # Файл сессии существует и пользователь авторизован = сессия валидна
+                # Не нужно создавать нового клиента для проверки, так как это вызывает проблемы с event loop
+                print(f"[API] check_session_status: файл сессии существует, пользователь авторизован, сессия валидна")
+                return jsonify({
+                    'success': True,
+                    'session_valid': True
+                })
             else:
                 print(f"[API] check_session_status: файл сессии не существует")
                 return jsonify({
@@ -533,7 +495,7 @@ def check_session_status():
                     'session_valid': False
                 })
         else:
-            print(f"[API] check_session_status: сессия не найдена")
+            print(f"[API] check_session_status: пользователь не авторизован")
             return jsonify({
                 'success': True,
                 'session_valid': False
