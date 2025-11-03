@@ -58,7 +58,30 @@ class UserbotManager:
             
             # Используем уже авторизованного клиента для работы юзербота
             userbot_client = client
-            print(f"[BOT] start_bot: клиент получен, регистрируем обработчик")
+            print(f"[BOT] start_bot: клиент получен, регистрируем обработчики")
+            
+            # Функция для обработки отключения сессии
+            async def handle_session_logout(error=None):
+                """
+                Обрабатывает отключение сессии (удаление в Telegram)
+                """
+                try:
+                    error_type = type(error).__name__ if error else "Unknown"
+                    print(f"[BOT] Обнаружено отключение сессии: {error_type}")
+                    
+                    # Удаляем бота из активных
+                    if session_id in self.active_bots:
+                        del self.active_bots[session_id]
+                        print(f"[BOT] Бот удален из активных")
+                    
+                    # Вызываем callback если он установлен
+                    if self.logout_callback:
+                        print(f"[BOT] Вызываем logout_callback для отключения сессии")
+                        self.logout_callback()
+                except Exception as callback_error:
+                    print(f"[BOT] Ошибка в handle_session_logout: {callback_error}")
+                    import traceback
+                    traceback.print_exc()
             
             # Регистрируем обработчик для всех входящих сообщений
             @userbot_client.on(events.NewMessage(incoming=True))
@@ -83,34 +106,55 @@ class UserbotManager:
                         print(f"[BOT] Эхо-ответ отправлен")
                         
                     except (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError) as e:
-                        print(f"[BOT] Сессия стала невалидной: {type(e).__name__}")
-                        try:
-                            # Удаляем бота из активных
-                            if session_id in self.active_bots:
-                                del self.active_bots[session_id]
-                                print(f"[BOT] Бот удален из активных")
-                            
-                            # Вызываем callback если он установлен
-                            if self.logout_callback:
-                                print(f"[BOT] Вызываем logout_callback")
-                                self.logout_callback()
-                        except Exception as callback_error:
-                            print(f"[BOT] Ошибка в callback: {callback_error}")
+                        print(f"[BOT] Сессия стала невалидной при отправке ответа: {type(e).__name__}")
+                        await handle_session_logout(e)
                     except Exception as e:
                         print(f"[BOT] Ошибка при отправке эхо-ответа: {e}")
+            
+            # Также добавляем периодическую проверку валидности сессии (каждые 20 секунд)
+            async def periodic_session_check():
+                """
+                Периодически проверяет валидность сессии через простой API вызов
+                """
+                while session_id in self.active_bots:
+                    try:
+                        await asyncio.sleep(20)  # Проверка каждые 20 секунд
+                        
+                        # Проверяем валидность сессии через вызов get_me()
+                        # Это более надежный способ, чем is_user_authorized()
+                        try:
+                            user = await asyncio.wait_for(userbot_client.get_me(), timeout=5)
+                            if user is None:
+                                print(f"[BOT] Периодическая проверка: get_me() вернул None - сессия невалидна")
+                                await handle_session_logout()
+                                break
+                        except (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError) as e:
+                            print(f"[BOT] Периодическая проверка: сессия отозвана: {type(e).__name__}")
+                            await handle_session_logout(e)
+                            break
+                        except asyncio.TimeoutError:
+                            print(f"[BOT] Периодическая проверка: таймаут при get_me()")
+                            # Таймаут - не критично, продолжаем проверку
+                            continue
+                    except Exception as e:
+                        error_name = type(e).__name__
+                        # Для критических ошибок авторизации прерываем цикл
+                        if isinstance(e, (AuthKeyUnregisteredError, SessionRevokedError, UnauthorizedError)):
+                            print(f"[BOT] Периодическая проверка: критическая ошибка авторизации: {error_name}")
+                            await handle_session_logout(e)
+                            break
+                        print(f"[BOT] Ошибка при периодической проверке сессии: {error_name}: {e}")
+                        # Не прерываем цикл при обычных ошибках
+                        continue
+            
+            # Запускаем периодическую проверку в фоне
+            asyncio.create_task(periodic_session_check())
             
             print(f"[BOT] start_bot: обработчик зарегистрирован, сохраняем бота")
             # Сохраняем бота
             self.active_bots[session_id] = userbot_client
-            # Получаем event loop клиента (если он есть)
-            try:
-                # Telethon клиент имеет доступ к event loop через get_event_loop()
-                client_loop = userbot_client._event_loop if hasattr(userbot_client, '_event_loop') else None
-                if client_loop:
-                    self.bot_loops[session_id] = client_loop
-                    print(f"[BOT] Event loop сохранен для сессии {session_id}")
-            except Exception as e:
-                print(f"[BOT] Не удалось сохранить event loop: {e}")
+            # Event loop будет сохранен в start_bot_with_client или в restore_and_start_bot
+            # Не пытаемся получить его здесь, так как он может быть не установлен или клиент может быть из другого loop
             
             print(f"[BOT] Юзербот для сессии {session_id} успешно запущен")
             return True

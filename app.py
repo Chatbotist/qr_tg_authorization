@@ -230,7 +230,6 @@ def check_status(qr_id):
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
                 # Небольшая задержка чтобы бот успел запуститься
-                import time
                 time.sleep(0.5)
             
             bot_active = userbot_manager.is_bot_active('main')
@@ -388,7 +387,6 @@ def submit_password(qr_id):
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
                 # Небольшая задержка чтобы бот успел запуститься
-                import time
                 time.sleep(0.5)
             
             bot_active = userbot_manager.is_bot_active('main')
@@ -854,7 +852,7 @@ def start_bot_with_client(client, qr_loop=None):
     
     Args:
         client: TelegramClient с подключенным клиентом
-        qr_loop: Опциональный существующий event loop (если None - создается новый)
+        qr_loop: Опциональный существующий event loop (если None или закрыт - создается новый)
     
     Returns:
         bool: True если бот успешно запущен
@@ -872,12 +870,16 @@ def start_bot_with_client(client, qr_loop=None):
                 traceback.print_exc()
                 raise
         
-        # Создаем новый event loop для бота - это более надежно
-        # Даже если есть qr_loop, создаем новый для бота чтобы не было проблем с закрытыми loops
-        print(f"[BOT] Создаем новый event loop для бота")
-        bot_loop = asyncio.new_event_loop()
+        # Если передан qr_loop и он не закрыт - используем его
+        # Иначе создаем новый loop для бота
+        if qr_loop and not qr_loop.is_closed():
+            print(f"[BOT] Используем существующий event loop из QR")
+            bot_loop = qr_loop
+        else:
+            print(f"[BOT] Создаем новый event loop для бота")
+            bot_loop = asyncio.new_event_loop()
         
-        # Запускаем бота в отдельном потоке с новым loop
+        # Запускаем бота в отдельном потоке с выбранным loop
         def run_bot_in_thread():
             try:
                 # Устанавливаем loop для этого потока
@@ -887,7 +889,7 @@ def start_bot_with_client(client, qr_loop=None):
                 userbot_manager.bot_loops['main'] = bot_loop
                 
                 # Запускаем бота
-                print(f"[BOT] Запускаем бота в новом event loop")
+                print(f"[BOT] Запускаем бота в event loop")
                 bot_loop.run_until_complete(init_bot())
                 print(f"[BOT] Бот зарегистрирован, запускаем event loop с run_forever...")
                 
