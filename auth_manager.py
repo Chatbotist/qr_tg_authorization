@@ -48,28 +48,25 @@ class AuthManager:
                 print(f"[AUTH] _start_global_loop: event loop создан, is_running={self._global_loop.is_running()}, is_closed={self._global_loop.is_closed()}")
                 
                 # Используем run_forever() - это правильный способ для отдельного потока
-                # НО сначала нужно убедиться, что loop готов к работе
-                # Добавляем задачу ДО запуска run_forever через call_soon
-                def start_keep_alive():
-                    """Планирует задачу keep_alive в event loop"""
-                    async def keep_alive():
-                        """Поддерживает loop активным и обрабатывает задачи"""
-                        print(f"[AUTH] _start_global_loop: keep_alive задача запущена в event loop")
-                        while True:
-                            await asyncio.sleep(1)  # Интервал для обработки задач
-                    
-                    # Создаем задачу в event loop
-                    task = self._global_loop.create_task(keep_alive())
-                    print(f"[AUTH] _start_global_loop: keep_alive задача создана: {task}")
-                    return task
+                # Создаем задачу keep_alive ПЕРЕД запуском run_forever
+                async def keep_alive():
+                    """Поддерживает loop активным и обрабатывает задачи"""
+                    print(f"[AUTH] _start_global_loop: keep_alive задача запущена в event loop")
+                    counter = 0
+                    while True:
+                        await asyncio.sleep(1)  # Интервал для обработки задач
+                        counter += 1
+                        if counter % 10 == 0:  # Логируем каждые 10 секунд
+                            print(f"[AUTH] _start_global_loop: keep_alive работает, прошло {counter} секунд")
                 
-                # Планируем запуск задачи после старта loop
-                # Используем call_soon_threadsafe чтобы быть уверенными
-                print(f"[AUTH] _start_global_loop: планируем keep_alive задачу...")
-                self._global_loop.call_soon_threadsafe(start_keep_alive)
+                # Создаем задачу ДО запуска run_forever
+                # Важно: создаем задачу синхронно, но она начнет выполняться только после run_forever()
+                print(f"[AUTH] _start_global_loop: создаем keep_alive задачу...")
+                task = self._global_loop.create_task(keep_alive())
+                print(f"[AUTH] _start_global_loop: keep_alive задача создана: {task}")
                 
                 print(f"[AUTH] _start_global_loop: запускаем run_forever()...")
-                # Запускаем бесконечный loop
+                # Запускаем бесконечный loop - теперь он будет обрабатывать и keep_alive, и задачи из других потоков
                 self._global_loop.run_forever()
                 print(f"[AUTH] _start_global_loop: run_forever() завершен (не должно произойти)")
             except Exception as e:
