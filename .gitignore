@@ -23,11 +23,12 @@ wheels/
 *.egg
 sessions/
 *.session
+*.session.journal
 .env
 *.log
 .DS_Store
 icons/
 
-# Generated QR codes
+# QR codes (temporary files)
 static/qr/
 

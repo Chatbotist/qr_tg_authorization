@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: qr-tg-authorization
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEBUG
+        value: False
+      - key: FLASK_HOST
+        value: 0.0.0.0
+      # Эти переменные нужно будет добавить вручную в Render Dashboard:
+      # API_ID=your_api_id
+      # API_HASH=your_api_hash
+      # SECRET_KEY=your-secret-key
+      # PORT - автоматически устанавливается Render
+
