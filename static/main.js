@@ -527,7 +527,7 @@ function showProfile(userData) {
     
     userName.textContent = `${userData.first_name} ${userData.last_name}`.trim();
     
-    if (userData.username) {
+    if (userData.username && userData.username.trim()) {
         userUsername.textContent = `@${userData.username}`;
         userUsername.style.display = 'block';
     } else {
@@ -652,8 +652,18 @@ async function handleLogout() {
             profileScreen.classList.remove('active');
             qrScreen.classList.add('active');
             
-            // Генерируем новый QR-код
-            generateNewQR();
+            // Небольшая задержка перед генерацией нового QR, чтобы сервер успел очистить данные
+            setTimeout(async () => {
+                try {
+                    await generateNewQR();
+                } catch (error) {
+                    console.error('[LOGOUT] Ошибка при генерации QR после выхода:', error);
+                    // Если не удалось сгенерировать QR, показываем сообщение об ошибке
+                    if (qrContainer) {
+                        qrContainer.innerHTML = '<div class="error-message">Ошибка загрузки QR-кода. Пожалуйста, обновите страницу.</div>';
+                    }
+                }
+            }, 500);
         } else {
             alert('Ошибка при выходе');
         }

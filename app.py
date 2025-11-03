@@ -209,28 +209,45 @@ def check_status(qr_id):
                         print(f"[BOT] Запускаем бота в потоке {threading.current_thread().name}")
                         # Получаем клиент из QR вместе с event loop
                         qr_data = auth_manager.active_qr_codes.get(qr_id)
+                        client = None
                         if qr_data:
                             client = qr_data.get("qr_client")
-                            qr_loop = qr_data.get("event_loop")
                             if not client:
-                                print(f"[BOT] Ошибка: клиент из QR не найден")
+                                print(f"[BOT] Предупреждение: клиент из QR не найден, создаем новый из сессии")
+                        
+                        # Если клиент из QR не найден, создаем новый из постоянной сессии
+                        if not client:
+                            print(f"[BOT] Создаем клиента из постоянной сессии")
+                            session_path = auth_manager.get_session_path()
+                            from telethon import TelegramClient
+                            client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
+                            # Подключаемся синхронно в новом loop
+                            async def connect_client():
+                                await client.connect()
+                                return client
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(connect_client())
+                                print(f"[BOT] Клиент подключен из сессии")
+                            except Exception as e:
+                                print(f"[BOT] Ошибка при подключении клиента: {e}")
+                                loop.close()
                                 return
-                            print(f"[BOT] Получили клиент из QR, регистрируем бота")
-                            
-                            # Используем вспомогательную функцию для запуска бота
-                            start_bot_with_client(client, qr_loop)
-                            
-                            # НЕ очищаем QR данные - клиент и loop нужны боту
-                            # auth_manager.get_qr_client_and_clear(qr_id)  # Оставляем клиент и loop для бота
+                        
+                        if client:
+                            print(f"[BOT] Получили клиент, регистрируем бота")
+                            # Используем вспомогательную функцию для запуска бота (qr_loop игнорируется)
+                            start_bot_with_client(client, None)
                         else:
-                            print(f"[BOT] Ошибка: QR данные не найдены")
+                            print(f"[BOT] Ошибка: не удалось получить клиент")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
                 # Небольшая задержка чтобы бот успел запуститься
-                time.sleep(0.5)
+                time.sleep(1)
             
             bot_active = userbot_manager.is_bot_active('main')
             return jsonify({
@@ -292,24 +309,26 @@ def user_photo():
                 if "main" in userbot_manager.bot_loops:
                     bot_loop = userbot_manager.bot_loops["main"]
                     if bot_loop and not bot_loop.is_closed():
-                        if bot_loop.is_running():
-                            # Loop запущен - используем run_coroutine_threadsafe
-                            future = asyncio.run_coroutine_threadsafe(get_photo_from_bot(), bot_loop)
-                            photo_data = future.result(timeout=10)
-                        else:
-                            # Loop не запущен - используем run_until_complete
-                            photo_data = bot_loop.run_until_complete(get_photo_from_bot())
-                        
-                        if photo_data:
-                            from io import BytesIO
-                            print(f"[API] user_photo: отправляем фото, размер: {len(photo_data)}")
-                            return send_file(BytesIO(photo_data), mimetype='image/jpeg')
+                        try:
+                            if bot_loop.is_running():
+                                # Loop запущен - используем run_coroutine_threadsafe
+                                future = asyncio.run_coroutine_threadsafe(get_photo_from_bot(), bot_loop)
+                                photo_data = future.result(timeout=10)
+                            else:
+                                # Loop не запущен - используем run_until_complete
+                                photo_data = bot_loop.run_until_complete(get_photo_from_bot())
+                            
+                            if photo_data:
+                                from io import BytesIO
+                                print(f"[API] user_photo: отправляем фото через бота, размер: {len(photo_data)}")
+                                return send_file(BytesIO(photo_data), mimetype='image/jpeg')
+                        except Exception as e:
+                            print(f"[API] user_photo: ошибка при использовании loop бота: {e}, используем fallback")
                 
-                # Если не получилось через bot_loop, пробуем напрямую
-                # Это может не сработать если loop в другом потоке, но попробуем
-                print(f"[API] user_photo: пытаемся загрузить фото через auth_manager")
+                # Если не получилось через bot_loop, пробуем через auth_manager
+                print(f"[API] user_photo: пытаемся загрузить фото через auth_manager (fallback)")
             except Exception as e:
-                print(f"[API] user_photo: ошибка при работе с клиентом бота: {e}")
+                print(f"[API] user_photo: ошибка при работе с клиентом бота: {e}, используем fallback")
         
         # Если бот не активен или не удалось получить фото через бота - используем auth_manager
         photo_data = auth_manager.get_user_photo(client=None)
@@ -366,28 +385,45 @@ def submit_password(qr_id):
                         print(f"[BOT] Запускаем бота в потоке {threading.current_thread().name}")
                         # Получаем клиент из QR вместе с event loop
                         qr_data = auth_manager.active_qr_codes.get(qr_id)
+                        client = None
                         if qr_data:
                             client = qr_data.get("qr_client")
-                            qr_loop = qr_data.get("event_loop")
                             if not client:
-                                print(f"[BOT] Ошибка: клиент из QR не найден")
+                                print(f"[BOT] Предупреждение: клиент из QR не найден, создаем новый из сессии")
+                        
+                        # Если клиент из QR не найден, создаем новый из постоянной сессии
+                        if not client:
+                            print(f"[BOT] Создаем клиента из постоянной сессии")
+                            session_path = auth_manager.get_session_path()
+                            from telethon import TelegramClient
+                            client = TelegramClient(str(session_path), config.API_ID, config.API_HASH)
+                            # Подключаемся синхронно в новом loop
+                            async def connect_client():
+                                await client.connect()
+                                return client
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(connect_client())
+                                print(f"[BOT] Клиент подключен из сессии")
+                            except Exception as e:
+                                print(f"[BOT] Ошибка при подключении клиента: {e}")
+                                loop.close()
                                 return
-                            print(f"[BOT] Получили клиент из QR, регистрируем бота")
-                            
-                            # Используем вспомогательную функцию для запуска бота
-                            start_bot_with_client(client, qr_loop)
-                            
-                            # НЕ очищаем QR данные - клиент и loop нужны боту
-                            # auth_manager.get_qr_client_and_clear(qr_id)  # Оставляем клиент и loop для бота
+                        
+                        if client:
+                            print(f"[BOT] Получили клиент, регистрируем бота")
+                            # Используем вспомогательную функцию для запуска бота (qr_loop игнорируется)
+                            start_bot_with_client(client, None)
                         else:
-                            print(f"[BOT] Ошибка: QR данные не найдены")
+                            print(f"[BOT] Ошибка: не удалось получить клиент")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
                         import traceback
                         traceback.print_exc()
                 threading.Thread(target=start_bot_thread, daemon=True).start()
                 # Небольшая задержка чтобы бот успел запуститься
-                time.sleep(0.5)
+                time.sleep(1)
             
             bot_active = userbot_manager.is_bot_active('main')
             return jsonify({
@@ -709,6 +745,10 @@ def logout():
         else:
             print(f"[API] logout: бот не был активен")
         
+        # Очищаем активные QR коды перед выходом
+        print(f"[API] logout: очищаем активные QR коды")
+        auth_manager.active_qr_codes.clear()
+        
         # Выходим из аккаунта
         auth_manager.logout()
         print(f"[API] logout: успешно завершен")
@@ -852,7 +892,7 @@ def start_bot_with_client(client, qr_loop=None):
     
     Args:
         client: TelegramClient с подключенным клиентом
-        qr_loop: Опциональный существующий event loop (если None или закрыт - создается новый)
+        qr_loop: Опциональный существующий event loop (игнорируется, всегда создаем новый для надежности)
     
     Returns:
         bool: True если бот успешно запущен
@@ -870,14 +910,10 @@ def start_bot_with_client(client, qr_loop=None):
                 traceback.print_exc()
                 raise
         
-        # Если передан qr_loop и он не закрыт - используем его
-        # Иначе создаем новый loop для бота
-        if qr_loop and not qr_loop.is_closed():
-            print(f"[BOT] Используем существующий event loop из QR")
-            bot_loop = qr_loop
-        else:
-            print(f"[BOT] Создаем новый event loop для бота")
-            bot_loop = asyncio.new_event_loop()
+        # Всегда создаем новый event loop для бота для надежности
+        # Использование существующего loop может привести к проблемам с закрытием или состоянием
+        print(f"[BOT] Создаем новый event loop для бота (qr_loop игнорируется для надежности)")
+        bot_loop = asyncio.new_event_loop()
         
         # Запускаем бота в отдельном потоке с выбранным loop
         def run_bot_in_thread():
