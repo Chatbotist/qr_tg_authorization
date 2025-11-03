@@ -4,7 +4,6 @@
 import time
 import uuid
 import asyncio
-import threading
 from pathlib import Path
 from typing import Optional, Dict, List
 from telethon import TelegramClient
