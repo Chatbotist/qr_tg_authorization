@@ -265,16 +265,33 @@ class AuthManager:
             """Внутренняя async функция для создания QR-логина"""
             print(f"[AUTH] create_qr_login: начинаем создание QR-логина")
             print(f"[AUTH] create_qr_login: API_ID={config.API_ID}, API_HASH установлен={bool(config.API_HASH)}")
+            
+            # Проверяем что переменные окружения установлены
+            if not config.API_ID or not config.API_HASH:
+                error_msg = "API_ID или API_HASH не установлены в переменных окружения!"
+                print(f"[AUTH] create_qr_login: ОШИБКА - {error_msg}")
+                raise ValueError(error_msg)
+            
             # Используем временную сессию для QR
+            print(f"[AUTH] create_qr_login: создаем TelegramClient с временной сессией: {temp_session}")
             client = TelegramClient(str(temp_session), config.API_ID, config.API_HASH)
             try:
-                print(f"[AUTH] create_qr_login: подключаемся к Telegram...")
-                await client.connect()
+                print(f"[AUTH] create_qr_login: подключаемся к Telegram с таймаутом 30 секунд...")
+                # Увеличиваем таймаут подключения до 30 секунд
+                await asyncio.wait_for(client.connect(), timeout=30)
                 print(f"[AUTH] create_qr_login: подключение успешно, создаем QR-логин...")
-                # Используем встроенный метод qr_login
-                qr_login = await client.qr_login()
+                # Используем встроенный метод qr_login с таймаутом
+                qr_login = await asyncio.wait_for(client.qr_login(), timeout=30)
                 print(f"[AUTH] create_qr_login: QR-логин успешно создан")
                 return qr_login, client  # Возвращаем и клиента тоже
+            except asyncio.TimeoutError as e:
+                error_msg = f"Таймаут при подключении к Telegram или создании QR-логина: {e}"
+                print(f"[AUTH] create_qr_login: ОШИБКА ТАЙМАУТ - {error_msg}")
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+                raise TimeoutError(error_msg) from e
             except Exception as e:
                 print(f"[AUTH] create_qr_login: ОШИБКА: {type(e).__name__}: {e}")
                 import traceback
@@ -288,8 +305,17 @@ class AuthManager:
         
         try:
             print(f"[AUTH] generate_qr_code: начинаем создание QR-логина через async функцию")
-            # Создаем QR-логин
-            qr_login, qr_client = self._run_async(create_qr_login())
+            print(f"[AUTH] generate_qr_code: проверяем переменные окружения перед вызовом create_qr_login")
+            print(f"[AUTH] generate_qr_code: API_ID={config.API_ID}, API_HASH={'установлен' if config.API_HASH else 'НЕ УСТАНОВЛЕН'}")
+            
+            # Создаем QR-логин с общим таймаутом 60 секунд
+            print(f"[AUTH] generate_qr_code: вызываем create_qr_login()...")
+            try:
+                qr_login, qr_client = self._run_async(create_qr_login())
+            except Exception as e:
+                print(f"[AUTH] generate_qr_code: ОШИБКА при вызове create_qr_login: {type(e).__name__}: {e}")
+                raise
+            
             print(f"[AUTH] generate_qr_code: QR-логин получен, получаем URL...")
             
             # Получаем URL для QR-кода
