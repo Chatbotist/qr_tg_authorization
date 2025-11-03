@@ -303,8 +303,10 @@ class AuthManager:
                 "expires_at": time.time() + config.QR_CODE_TIMEOUT,
                 "temp_session": str(temp_session),
             }
+            print(f"[AUTH] generate_qr_code: информация о QR сохранена, начинаем генерацию изображения...")
             
             # Генерируем QR-код
+            print(f"[AUTH] generate_qr_code: генерируем QR-код из URL...")
             qr = qrcode.QRCode(
                 version=1,
                 error_correction=qrcode.constants.ERROR_CORRECT_L,
