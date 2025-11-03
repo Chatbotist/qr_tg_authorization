@@ -449,6 +449,13 @@ def submit_password(qr_id):
         }), 500
 
 
+# Кеш для состояния бота (для предотвращения колебаний)
+_bot_state_cache = {
+    'active': False,
+    'timestamp': 0
+}
+BOT_STATE_CACHE_TTL = 5  # Кеш действителен 5 секунд
+
 @app.route('/api/active_sessions')
 def active_sessions():
     """
@@ -457,12 +464,36 @@ def active_sessions():
     Returns:
         JSON со списком активных сессий и статусом бота
     """
+    global _bot_state_cache
+    
     try:
         print(f"[API] active_sessions вызван")
         
-        # ВАЖНО: Проверяем состояние бота ДО получения sessions, чтобы гарантировать точность
-        bot_active = userbot_manager.is_bot_active('main')
-        print(f"[API] active_sessions: проверка состояния бота: {bot_active}")
+        # Получаем текущее состояние бота
+        current_bot_active = userbot_manager.is_bot_active('main')
+        current_time = time.time()
+        
+        # Если кеш устарел или состояние изменилось на True (активация важнее деактивации) - обновляем кеш
+        cache_age = current_time - _bot_state_cache['timestamp']
+        if cache_age > BOT_STATE_CACHE_TTL or current_bot_active != _bot_state_cache['active']:
+            # Обновляем кеш только если:
+            # 1. Кеш устарел ИЛИ
+            # 2. Бот активировался (переход с False на True) - это важное событие
+            # 3. Или бот деактивировался (переход с True на False) И кеш устарел больше чем на TTL
+            if current_bot_active != _bot_state_cache['active']:
+                # Состояние изменилось - обновляем кеш немедленно
+                print(f"[API] active_sessions: состояние бота изменилось: {_bot_state_cache['active']} -> {current_bot_active}")
+                _bot_state_cache['active'] = current_bot_active
+                _bot_state_cache['timestamp'] = current_time
+            elif cache_age > BOT_STATE_CACHE_TTL:
+                # Кеш устарел - обновляем его
+                print(f"[API] active_sessions: кеш устарел ({cache_age:.1f}с), обновляем состояние: {current_bot_active}")
+                _bot_state_cache['active'] = current_bot_active
+                _bot_state_cache['timestamp'] = current_time
+        
+        # Используем кешированное значение для стабильности
+        bot_active = _bot_state_cache['active']
+        print(f"[API] active_sessions: проверка состояния бота: текущее={current_bot_active}, кеш={bot_active}, возраст_кеша={cache_age:.1f}с")
         
         sessions = auth_manager.get_active_sessions()
         print(f"[API] active_sessions: sessions={sessions}, bot_active={bot_active}")
@@ -486,7 +517,7 @@ def active_sessions():
         return jsonify({
             'success': True,
             'sessions': sessions,
-            'bot_active': bot_active  # Всегда возвращаем точное состояние бота
+            'bot_active': bot_active  # Возвращаем кешированное значение для стабильности
         })
     except Exception as e:
         print(f"[API] active_sessions: ошибка: {e}")
@@ -877,15 +908,30 @@ def toggle_bot():
                 print(f"[API] toggle_bot: останавливаем бота")
                 async def stop_bot():
                     await userbot_manager.stop_bot("main")
+                    # Обновляем кеш после остановки
+                    global _bot_state_cache
+                    _bot_state_cache['active'] = False
+                    _bot_state_cache['timestamp'] = time.time()
+                    print(f"[API] toggle_bot: кеш состояния бота обновлен (остановлен)")
                 # Создаем новый event loop для остановки бота
                 result, _ = auth_manager._run_async_in_new_loop(stop_bot(), timeout=10)
                 print(f"[API] toggle_bot: бот остановлен")
             else:
                 print(f"[API] toggle_bot: бот не был активен")
+                # Даже если бот не был активен, обновляем кеш для согласованности
+                global _bot_state_cache
+                _bot_state_cache['active'] = False
+                _bot_state_cache['timestamp'] = time.time()
         
         # Проверяем реальное состояние бота после операции и возвращаем его
         actual_bot_active = userbot_manager.is_bot_active('main')
         print(f"[API] toggle_bot: реальное состояние бота после операции: {actual_bot_active}")
+        
+        # Обновляем кеш состояния бота сразу после операции
+        global _bot_state_cache
+        _bot_state_cache['active'] = actual_bot_active
+        _bot_state_cache['timestamp'] = time.time()
+        print(f"[API] toggle_bot: кеш состояния бота обновлен: {actual_bot_active}")
         
         return jsonify({
             'success': True,
