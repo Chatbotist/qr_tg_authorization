@@ -477,7 +477,9 @@ def check_session_status():
                             except:
                                 pass
                             return False
-                is_valid = auth_manager._run_async(check_session())
+                # Используем новый event loop для проверки сессии
+                result, _ = auth_manager._run_async_in_new_loop(check_session(), timeout=30)
+                is_valid = result
                 if is_valid:
                     print(f"[API] check_session_status: сессия валидна")
                     return jsonify({
@@ -525,11 +527,10 @@ def logout():
         # Останавливаем юзербота
         if userbot_manager.is_bot_active("main"):
             print(f"[API] logout: останавливаем бота")
-            loop = auth_manager._get_loop()
             async def stop_bot():
                 await userbot_manager.stop_bot("main")
-            future = asyncio.run_coroutine_threadsafe(stop_bot(), loop)
-            future.result(timeout=5)  # Таймаут 5 секунд
+            # Создаем новый event loop для остановки бота
+            result, _ = auth_manager._run_async_in_new_loop(stop_bot(), timeout=5)
             print(f"[API] logout: бот остановлен")
         else:
             print(f"[API] logout: бот не был активен")
@@ -573,8 +574,6 @@ def toggle_bot():
         data = request.get_json()
         enabled = data.get('enabled', False)
         
-        loop = auth_manager._get_loop()
-        
         if enabled:
             # Включаем бота (если еще не активен)
             if not userbot_manager.is_bot_active("main"):
@@ -601,9 +600,8 @@ def toggle_bot():
                                 import traceback
                                 traceback.print_exc()
                                 raise
-                        future = asyncio.run_coroutine_threadsafe(init_bot(), loop)
-                        print(f"[BOT] Ждем завершения запуска бота")
-                        future.result(timeout=10)  # Таймаут 10 секунд
+                        # Создаем новый event loop для запуска бота
+                        result, _ = auth_manager._run_async_in_new_loop(init_bot(), timeout=30)
                         print(f"[BOT] Бот запущен")
                     except Exception as e:
                         print(f"[BOT] Ошибка в потоке бота: {e}")
@@ -618,8 +616,8 @@ def toggle_bot():
                 print(f"[API] toggle_bot: останавливаем бота")
                 async def stop_bot():
                     await userbot_manager.stop_bot("main")
-                future = asyncio.run_coroutine_threadsafe(stop_bot(), loop)
-                future.result()
+                # Создаем новый event loop для остановки бота
+                result, _ = auth_manager._run_async_in_new_loop(stop_bot(), timeout=10)
                 print(f"[API] toggle_bot: бот остановлен")
             else:
                 print(f"[API] toggle_bot: бот не был активен")
