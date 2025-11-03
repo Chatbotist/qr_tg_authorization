@@ -5,6 +5,7 @@ from flask import Flask, render_template, jsonify, request, send_file
 import asyncio
 import threading
 import time
+import os
 from auth_manager import auth_manager
 from userbot_manager import userbot_manager
 from pathlib import Path
@@ -641,6 +642,34 @@ def cleanup_expired_qr_periodically():
             auth_manager.cleanup_expired_qr()
         except Exception as e:
             print(f"[APP] Ошибка при очистке истекших QR: {e}")
+
+
+def setup_keepalive():
+    """Настраивает периодические запросы для поддержания сервиса активным (только для разработки)"""
+    try:
+        import requests
+    except ImportError:
+        print("[KEEPALIVE] requests не установлен, keepalive отключен")
+        return
+    
+    def ping_health():
+        """Отправляет запрос к /health каждые 50 секунд"""
+        try:
+            port = os.getenv('PORT', '5000')
+            url = f'http://localhost:{port}/health'
+            requests.get(url, timeout=5)
+            print("[KEEPALIVE] Health check sent")
+        except Exception as e:
+            print(f"[KEEPALIVE] Error: {e}")
+    
+    # Запускаем ping каждые 50 секунд (меньше чем таймаут бездействия Render ~60 секунд)
+    def keepalive_loop():
+        while True:
+            time.sleep(50)
+            ping_health()
+    
+    threading.Thread(target=keepalive_loop, daemon=True).start()
+    print("[KEEPALIVE] Keepalive thread started (only for local development)")
 
 
 def handle_user_logout():
